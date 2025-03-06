@@ -1,3 +1,6 @@
+# movement
+Project made with expo/React Native to keep track of human body movement 
+
 # Welcome to your Expo app 👋
 
 This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).

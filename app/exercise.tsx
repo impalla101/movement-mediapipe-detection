@@ -125,8 +125,8 @@ export default function Exercise() {
 		"worklet";
 
 		// Process the frame using the 'poseLandmarks' function
-		poseLandmarks(frame);
 		frame.render();
+		poseLandmarks(frame);
 		if (landmarks.value != null && Object.keys(landmarks.value).length > 0) {
 			let body = landmarks.value;
 			let frameWidth = frame.width;
@@ -151,8 +151,6 @@ export default function Exercise() {
 				);
 			}
 		}
-
-		landmarks.value = {};
 	}, []);
 
 	if (!hasPermission) {

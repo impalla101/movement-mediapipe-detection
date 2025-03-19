@@ -1,53 +1,35 @@
 # movement
-Project made with expo/React Native to keep track of human body movement 
+
+Project made with expo/React Native to keep track of human body movement
 
 # Welcome to your Expo app 👋
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+This project was made to learn how to use MediPipe with React Native. The UI is super ugly but functional. I have faced some weird bug with the `react-native-vision-camera@4.6.4` (the latest version at the moment of this publishing), where the Camera component for some reason was getting the wrong orientation and causing a crash when using `useSkiaFrameProcessor`. You can find the issue opened [here](https://github.com/mrousavy/react-native-vision-camera/issues/2951).
 
 ## Get started
 
 1. Install dependencies
 
    ```bash
-   npm install
+   yarn
    ```
 
 2. Start the app
 
    ```bash
-    npx expo start
+    npx expo -c
    ```
 
-In the output, you'll find options to open the app in a
+   For android, you need to have [NDK in your environment variables](https://shopify.github.io/react-native-skia/docs/getting-started/installation/#android)
+   In another terminal run for each OS
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+   ```bash
+   yarn android
+   yarn ios
+   ```
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+   If you find some `buildCMakeDebug[arm64-v8a]` error while building the Android app, go to android folder and run
 
-## Get a fresh project
-
-When you're ready, run:
-
-```bash
-npm run reset-project
-```
-
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
-
-## Learn more
-
-To learn more about developing your project with Expo, look at the following resources:
-
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
-
-## Join the community
-
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+   ```bash
+   /gradlew clean && rm -rf gradle
+   ```

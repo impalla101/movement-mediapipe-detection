@@ -1,16 +1,21 @@
 import { Skia } from "@shopify/react-native-skia";
-import React, { useEffect } from "react";
+import { Stack } from "expo-router";
+import React, { useEffect, useState } from "react";
 import {
+	Button,
 	NativeEventEmitter,
 	NativeModules,
 	Platform,
 	StyleSheet,
 	Text,
+	View,
 } from "react-native";
 import {
 	Camera,
+	CameraPosition,
 	Frame,
 	useCameraDevice,
+	useCameraFormat,
 	useCameraPermission,
 	useSkiaFrameProcessor,
 	VisionCameraProxy,
@@ -92,8 +97,11 @@ linePaint.setStrokeWidth(10);
 
 export default function Exercise() {
 	const landmarks = useSharedValue<KeypointsMap>({});
-	const device = useCameraDevice("front");
 	const { hasPermission, requestPermission } = useCameraPermission();
+	const [cameraPosition, setCameraPosition] = useState<CameraPosition>("front");
+	const [showLines, setShowLines] = useState(true);
+	const [showCircles, setShowCircles] = useState(true);
+	const device = useCameraDevice(cameraPosition);
 
 	useEffect(() => {
 		// Set up the event listener to listen for pose landmarks detection results
@@ -121,37 +129,46 @@ export default function Exercise() {
 		requestPermission().catch((error) => console.log(error));
 	}, [requestPermission]);
 
-	const frameProcessor = useSkiaFrameProcessor((frame) => {
-		"worklet";
+	const frameProcessor = useSkiaFrameProcessor(
+		(frame) => {
+			"worklet";
 
-		// Process the frame using the 'poseLandmarks' function
-		frame.render();
-		poseLandmarks(frame);
-		if (landmarks.value != null && Object.keys(landmarks.value).length > 0) {
-			let body = landmarks.value;
-			let frameWidth = frame.width;
-			let frameHeight = frame.height;
-			// Draw line on landmarks
-			for (let [from, to] of LINES) {
-				frame.drawLine(
-					body[from].x * Number(frameWidth),
-					body[from].y * Number(frameHeight),
-					body[to].x * Number(frameWidth),
-					body[to].y * Number(frameHeight),
-					linePaint
-				);
+			// Process the frame using the 'poseLandmarks' function
+			frame.render();
+			poseLandmarks(frame);
+			if (
+				landmarks?.value !== undefined &&
+				Object.keys(landmarks?.value).length > 0
+			) {
+				let body = landmarks?.value;
+				let frameWidth = frame.width;
+				let frameHeight = frame.height;
+				// Draw line on landmarks
+				if (showLines) {
+					for (let [from, to] of LINES) {
+						frame.drawLine(
+							body[from].x * Number(frameWidth),
+							body[from].y * Number(frameHeight),
+							body[to].x * Number(frameWidth),
+							body[to].y * Number(frameHeight),
+							linePaint
+						);
+					}
+				} // Draw circles on landmarks
+				if (showCircles) {
+					for (let mark of Object.values(body)) {
+						frame.drawCircle(
+							mark.x * Number(frameWidth),
+							mark.y * Number(frameHeight),
+							6,
+							circlePaint
+						);
+					}
+				}
 			}
-			// Draw circles on landmarks
-			for (let mark of Object.values(body)) {
-				frame.drawCircle(
-					mark.x * Number(frameWidth),
-					mark.y * Number(frameHeight),
-					6,
-					circlePaint
-				);
-			}
-		}
-	}, []);
+		},
+		[showLines, showCircles]
+	);
 
 	if (!hasPermission) {
 		return <Text>No permission</Text>;
@@ -164,12 +181,60 @@ export default function Exercise() {
 	const pixelFormat = Platform.OS === "ios" ? "rgb" : "yuv";
 
 	return (
-		<Camera
-			style={StyleSheet.absoluteFill}
-			device={device}
-			isActive={true}
-			frameProcessor={frameProcessor}
-			pixelFormat={pixelFormat}
-		/>
+		<>
+			<Stack.Screen
+				name="exercise"
+				options={{
+					title: "Exercise",
+					headerRight: () => (
+						<>
+							<Button
+								title="Change camera"
+								onPress={() =>
+									setCameraPosition((prev) =>
+										prev === "front" ? "back" : "front"
+									)
+								}
+							/>
+						</>
+					),
+				}}
+			/>
+			<View style={styles.drawControl}>
+				<Button
+					title={showLines ? "Hide lines" : "Show lines"}
+					onPress={() => setShowLines(!showLines)}
+				/>
+				<Button
+					title={showCircles ? "Hide circles" : "Show circles"}
+					onPress={() => setShowCircles(!showCircles)}
+				/>
+			</View>
+			<Camera
+				style={StyleSheet.absoluteFill}
+				device={device}
+				isActive={true}
+				frameProcessor={frameProcessor}
+				pixelFormat={pixelFormat}
+				videoHdr={false}
+				enableBufferCompression={true}
+				photo={false}
+				fps={30}
+			/>
+		</>
 	);
 }
+
+const styles = StyleSheet.create({
+	drawControl: {
+		position: "absolute",
+		top: 0,
+		left: 0,
+		right: 0,
+		zIndex: 10,
+		backgroundColor: "#FFF",
+		flexDirection: "row",
+		justifyContent: "space-between",
+		padding: 10,
+	},
+});

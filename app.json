@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "movement",
-    "slug": "movement",
+    "name": "FitRep",
+    "slug": "fitrep-app",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -11,9 +11,9 @@
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "NSCameraUsageDescription": "$(PRODUCT_NAME) needs access to your Camera."
+        "NSCameraUsageDescription": "$(PRODUCT_NAME) needs access to your Camera to track your reps and correct your form."
       },
-      "bundleIdentifier": "com.ailsonfreire.movement"
+      "bundleIdentifier": "fitrep.app"
     },
     "android": {
       "adaptiveIcon": {
@@ -23,7 +23,7 @@
       "permissions": [
         "android.permission.CAMERA"
       ],
-      "package": "com.ailsonfreire.movement"
+      "package": "fitrep.app"
     },
     "web": {
       "bundler": "metro",
@@ -44,7 +44,7 @@
       [
         "react-native-vision-camera",
         {
-          "cameraPermissionText": "$(PRODUCT_NAME) needs access to your Camera."
+          "cameraPermissionText": "$(PRODUCT_NAME) needs access to your Camera to track your workouts and correct your form."
         }
       ]
     ],

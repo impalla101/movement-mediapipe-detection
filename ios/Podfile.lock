@@ -3,13 +3,13 @@ PODS:
   - DoubleConversion (1.1.6)
   - EXConstants (17.0.7):
     - ExpoModulesCore
-  - Expo (52.0.37):
+  - Expo (52.0.42):
     - ExpoModulesCore
-  - ExpoAsset (11.0.4):
+  - ExpoAsset (11.0.5):
     - ExpoModulesCore
   - ExpoBlur (14.0.3):
     - ExpoModulesCore
-  - ExpoFileSystem (18.0.11):
+  - ExpoFileSystem (18.0.12):
     - ExpoModulesCore
   - ExpoFont (13.0.4):
     - ExpoModulesCore
@@ -21,7 +21,7 @@ PODS:
     - ExpoModulesCore
   - ExpoLinking (7.0.5):
     - ExpoModulesCore
-  - ExpoModulesCore (2.2.2):
+  - ExpoModulesCore (2.2.3):
     - DoubleConversion
     - glog
     - hermes-engine
@@ -1694,6 +1694,27 @@ PODS:
     - React-logger (= 0.76.7)
     - React-perflogger (= 0.76.7)
     - React-utils (= 0.76.7)
+  - RNCAsyncStorage (1.23.1):
+    - DoubleConversion
+    - glog
+    - hermes-engine
+    - RCT-Folly (= 2024.01.01.00)
+    - RCTRequired
+    - RCTTypeSafety
+    - React-Core
+    - React-debug
+    - React-Fabric
+    - React-featureflags
+    - React-graphics
+    - React-ImageManager
+    - React-NativeModulesApple
+    - React-RCTFabric
+    - React-rendererdebug
+    - React-utils
+    - ReactCodegen
+    - ReactCommon/turbomodule/bridging
+    - ReactCommon/turbomodule/core
+    - Yoga
   - RNGestureHandler (2.20.2):
     - DoubleConversion
     - glog
@@ -1947,6 +1968,7 @@ DEPENDENCIES:
   - React-utils (from `../node_modules/react-native/ReactCommon/react/utils`)
   - ReactCodegen (from `build/generated/ios`)
   - ReactCommon/turbomodule/core (from `../node_modules/react-native/ReactCommon`)
+  - "RNCAsyncStorage (from `../node_modules/@react-native-async-storage/async-storage`)"
   - RNGestureHandler (from `../node_modules/react-native-gesture-handler`)
   - RNReanimated (from `../node_modules/react-native-reanimated`)
   - RNScreens (from `../node_modules/react-native-screens`)
@@ -2123,6 +2145,8 @@ EXTERNAL SOURCES:
     :path: build/generated/ios
   ReactCommon:
     :path: "../node_modules/react-native/ReactCommon"
+  RNCAsyncStorage:
+    :path: "../node_modules/@react-native-async-storage/async-storage"
   RNGestureHandler:
     :path: "../node_modules/react-native-gesture-handler"
   RNReanimated:
@@ -2138,16 +2162,16 @@ SPEC CHECKSUMS:
   boost: 1dca942403ed9342f98334bf4c3621f011aa7946
   DoubleConversion: f16ae600a246532c4020132d54af21d0ddb2a385
   EXConstants: 30c43b9ca8391c31bab9cc45c97f16eddcf11042
-  Expo: 63515728b6f238842dc95702eb0fb385f00d7c5a
-  ExpoAsset: 4033893dfb333b444bf45e951351254137b658d5
+  Expo: e8f11c8e0290deca7be9254569e23f884b95a777
+  ExpoAsset: 48386d40d53a8c1738929b3ed509bcad595b5516
   ExpoBlur: 392c1207f71d0ecf22371621c1fbd44ba84d9742
-  ExpoFileSystem: 2d804c73034c0d65eb2a640e0a77627033b69edc
+  ExpoFileSystem: 42d363d3b96f9afab980dcef60d5657a4443c655
   ExpoFont: f354e926f8feae5e831ec8087f36652b44a0b188
   ExpoHaptics: 8d199b2f33245ea85289ff6c954c7ee7c00a5b5d
   ExpoHead: 5d1c5c20e3933db5d9ca349424cb3b9a4a84b706
   ExpoKeepAwake: b0171a73665bfcefcfcc311742a72a956e6aa680
   ExpoLinking: 8d12bee174ba0cdf31239706578e29e74a417402
-  ExpoModulesCore: 7f5e59799b89e5fad1d7cc6070744c1003ca320f
+  ExpoModulesCore: 98297c2cc7977c43740a2e52d850d94ac8dbf176
   ExpoSplashScreen: 0f281e3c2ded4757d2309276c682d023c6299c77
   ExpoSymbols: f3002db15156cd4e505c77b6ea1df5c984db9965
   ExpoSystemUI: 2e5356d22b077c56c132b4dcbc5d69dd667b1f8c
@@ -2218,6 +2242,7 @@ SPEC CHECKSUMS:
   React-utils: 0342746d2cf989cf5e0d1b84c98cfa152edbdf3f
   ReactCodegen: e1c019dc68733dd2c5d3b263b4a6dc72002c0045
   ReactCommon: 81e0744ee33adfd6d586141b927024f488bc49ea
+  RNCAsyncStorage: ff8f69859448bde50f1c25d3e7eb37555fed33ab
   RNGestureHandler: 16ef3dc2d7ecb09f240f25df5255953c4098819b
   RNReanimated: e01050e272623a49aba628de3dfd2b539b8cc4c6
   RNScreens: 351f431ef2a042a1887d4d90e1c1024b8ae9d123

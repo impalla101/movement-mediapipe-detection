@@ -1,0 +1,11 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+
+# We're developing a mobile fitness app called "FitRep".
+
+Here's how it works:
+
+A mobile fitness app that uses machine learning (pose detection) to automatically count reps and detect poor form. The exercises detected include simple bodyweight workouts (equipment-free) that can be detected by the ML model. The core problem this product solves is accountability. By counting reps automatically, the account of effort isn’t left to the user to embellish and therefore every rep is truly earned. But this is just the beginning. In the future I plan to gamify the process and add points where 1 rep = 1 point. I plan to include a mini 8-bit avatar that follows user progress and visually develops in real time as the user does. There will be point boosters and bonuses where certain actions get you more points, and a reward system that includes discounts, avatar customization, workout merch, and gear. The mission is to incentivize people to stick to their goals by earning points that they cannot cheat or fake.

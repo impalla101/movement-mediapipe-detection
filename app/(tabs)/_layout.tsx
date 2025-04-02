@@ -8,7 +8,7 @@ import MaterialIcons from '@expo/vector-icons/MaterialIcons'
 export default function TabLayout() {
   return (
     <Tabs
-        screenOptions={{
+        screenOptions={{ 
             headerShown: false,
             tabBarActiveTintColor: COLORS.primary,
             tabBarInactiveTintColor: COLORS.gray

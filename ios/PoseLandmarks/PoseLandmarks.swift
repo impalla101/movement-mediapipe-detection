@@ -83,21 +83,29 @@ class PoseLandmarks: RCTEventEmitter {
       resultProcessor = PoseLandmarkerResultProcessor(eventEmitter: self)
 
       // Initialize the Pose Landmarker
-      let modelPath = Bundle.main.path(forResource: "pose_landmarker_lite", ofType: "task")
+      let modelName = "pose_landmarker_lite"
+      let modelPath = Bundle.main.path(forResource: modelName, ofType: "task")
+
+      guard let actualModelPath = modelPath else {
+        print("Error: \(modelName).task not found in bundle.")
+        sendErrorEvent("Model file \(modelName).task not found.")
+        return
+      }
 
       let options = PoseLandmarkerOptions()
-      options.baseOptions.modelAssetPath = modelPath ?? "pose_landmarker_lite.task"
+      options.baseOptions.modelAssetPath = actualModelPath
       options.runningMode = .liveStream
-      options.minTrackingConfidence = 0.8
-      options.minPoseDetectionConfidence = 0.8
-      options.minPosePresenceConfidence = 0.8
+      options.minTrackingConfidence = 0.6
+      options.minPoseDetectionConfidence = 0.7
+      options.minPosePresenceConfidence = 0.7
       options.poseLandmarkerLiveStreamDelegate = resultProcessor
 
       try PoseLandmarkerHolder.shared.initializePoseLandmarker(with: options)
       // Send success event to JS
-      print("PoseLandmarker initialized")
+      print("PoseLandmarker initialized with \(modelName).task")
     } catch {
       print("Error initializing PoseLandmarker: \(error.localizedDescription)")
+      sendErrorEvent("Error initializing PoseLandmarker: \(error.localizedDescription)")
     }
   }
 

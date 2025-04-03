@@ -2,13 +2,14 @@ import React from 'react';
 import { View, Text, StyleSheet, ScrollView, Image, Pressable } from 'react-native';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { COLORS } from '@/constants/theme';
+import { Link } from 'expo-router';
 
 // Placeholder data - eventually this will come from your app's state or API
 const userName = "Andrew";
 const userLevel = 4;
 const userRP = 2155;
 const progress = 0.75; // Example: 75% progress
-const tipText = "Engage your core mucles for better balance"; // Corrected typo
+const tipText = "Engage your core mucles for better balance";
 
 export default function Home() {
   return (
@@ -44,9 +45,11 @@ export default function Home() {
       </View>
 
       {/* Daily Challenge Button */}
-      <Pressable style={styles.dailyChallengeButton} onPress={() => console.log('Daily Challenge Pressed!')}>
-        <Text style={styles.dailyChallengeButtonText}>Daily Challenge</Text>
-      </Pressable>
+      <Link href="/exercise" asChild>
+        <Pressable style={styles.dailyChallengeButton} >
+          <Text style={styles.dailyChallengeButtonText}>Daily Challenge</Text>
+        </Pressable>
+      </Link>
 
       {/* Tips & Form Guide Section */}
       <View style={styles.tipsSection}>

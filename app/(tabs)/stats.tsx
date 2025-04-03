@@ -57,17 +57,17 @@ export default function Stats() {
           <View style={styles.statsBarsContainer}>
             <View style={styles.statRow}>
               <Text style={styles.statLabel}>Strength</Text>
-              <Text style={styles.statEmoji}>💪</Text> {/* Placeholder Emoji */}
+              <Text style={styles.statEmoji}>💪</Text>
               <StatProgressBar value={fitnessLevels.strength} color={COLORS.primary} />
             </View>
             <View style={styles.statRow}>
               <Text style={styles.statLabel}>Stamina</Text>
-              <Text style={styles.statEmoji}>💨</Text> {/* Placeholder Emoji */}
+              <Text style={styles.statEmoji}>💨</Text>
               <StatProgressBar value={fitnessLevels.stamina} color={COLORS.primary} />
             </View>
             <View style={styles.statRow}>
               <Text style={styles.statLabel}>Speed</Text>
-              <Text style={styles.statEmoji}>⚡</Text> {/* Placeholder Emoji */}
+              <Text style={styles.statEmoji}>⚡</Text>
               <StatProgressBar value={fitnessLevels.speed} color={COLORS.primary} />
             </View>
           </View>

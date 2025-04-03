@@ -13,8 +13,10 @@ install! 'cocoapods',
 
 prepare_react_native_project!
 
-target 'movement' do
+target 'FitRep' do
   use_expo_modules!
+
+  pod 'MediaPipeTasksVision', '0.10.14' 
 
   if ENV['EXPO_USE_COMMUNITY_AUTOLINKING'] == '1'
     config_command = ['node', '-e', "process.argv=['', '', 'config'];require('@react-native-community/cli').run()"];
@@ -43,8 +45,6 @@ target 'movement' do
     :app_path => "#{Pod::Config.instance.installation_root}/..",
     :privacy_file_aggregation_enabled => podfile_properties['apple.privacyManifestAggregationEnabled'] != 'false',
   )
-  
-  pod 'MediaPipeTasksVision', '0.10.14'
 
   post_install do |installer|
     react_native_post_install(

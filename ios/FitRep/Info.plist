@@ -7,7 +7,7 @@
     <key>CFBundleDevelopmentRegion</key>
     <string>$(DEVELOPMENT_LANGUAGE)</string>
     <key>CFBundleDisplayName</key>
-    <string>movement</string>
+    <string>FitRep</string>
     <key>CFBundleExecutable</key>
     <string>$(EXECUTABLE_NAME)</string>
     <key>CFBundleIdentifier</key>
@@ -28,7 +28,7 @@
         <key>CFBundleURLSchemes</key>
         <array>
           <string>myapp</string>
-          <string>com.ailsonfreire.movement</string>
+          <string>fitrep.app</string>
         </array>
       </dict>
     </array>
@@ -46,7 +46,7 @@
       <true/>
     </dict>
     <key>NSCameraUsageDescription</key>
-    <string>$(PRODUCT_NAME) needs access to your Camera.</string>
+    <string>$(PRODUCT_NAME) needs access to your Camera to track your workouts and correct your form.</string>
     <key>NSUserActivityTypes</key>
     <array>
       <string>$(PRODUCT_BUNDLE_IDENTIFIER).expo.index_route</string>

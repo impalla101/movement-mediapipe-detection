@@ -1,6 +1,6 @@
 import { Skia } from "@shopify/react-native-skia";
 import { Stack } from "expo-router";
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState, useRef, useCallback } from "react";
 import {
   Button,
   NativeEventEmitter,
@@ -10,6 +10,7 @@ import {
   Text,
   View,
   TouchableOpacity,
+  Alert,
 } from "react-native";
 import {
   Camera,
@@ -99,11 +100,11 @@ const LINES = [
 // Style settings
 const linePaint = Skia.Paint();
 linePaint.setColor(Skia.Color("red"));
-linePaint.setStrokeWidth(30);
+linePaint.setStrokeWidth(15);
 
 const circlePaint = Skia.Paint();
 circlePaint.setColor(Skia.Color("green"));
-circlePaint.setStrokeWidth(10);
+circlePaint.setStrokeWidth(5);
 
 // MediaPipe pose landmark indices for reference
 // These are the indices for the landmarks returned by MediaPipe
@@ -156,15 +157,25 @@ function calculateAngle(a: KeypointData, b: KeypointData, c: KeypointData) {
   const magAB = Math.sqrt(ab.x * ab.x + ab.y * ab.y);
   const magCB = Math.sqrt(cb.x * cb.x + cb.y * cb.y);
   
-  // Calculate angle in radians
-  const angleRad = Math.acos(dot / (magAB * magCB));
+  // Prevent division by zero
+  if (magAB === 0 || magCB === 0) return 0;
+  
+  // Calculate angle in radians, clamping the value to [-1, 1] to avoid NaN from floating point errors
+  const cosTheta = Math.max(-1, Math.min(1, dot / (magAB * magCB)));
+  const angleRad = Math.acos(cosTheta);
   
   // Convert to degrees
   return (angleRad * 180) / Math.PI;
 }
 
+// Configuration
+const CALIBRATION_DELAY_MS = 3000; // 3 seconds delay for calibration
+const HYSTERESIS_MARGIN = 3; // Degrees - Adjust this value based on testing!
+
 export default function Exercise() {
   const landmarks = useSharedValue<KeypointsMap>({});
+  const frameSkipCounter = useSharedValue(0);
+  const PROCESS_EVERY_NTH_FRAME = 1;
   const { hasPermission, requestPermission } = useCameraPermission();
   const [cameraPosition, setCameraPosition] = useState<CameraPosition>("front");
   const [showLines, setShowLines] = useState(true);
@@ -175,240 +186,393 @@ export default function Exercise() {
   const [currentExercise, setCurrentExercise] = useState<ExerciseType>("none");
   const [repCount, setRepCount] = useState(0);
   const [exerciseState, setExerciseState] = useState<ExerciseState>("up");
+  // Use useRef to hold the *previous stable* state for rep counting logic
   const previousStateRef = useRef<ExerciseState>("up");
+  // **** NEW: Flag to track if 'down' state was hit during the current rep cycle ****
+  const downStateAchievedInCycle = useRef(false);
   
-  // Angle thresholds for exercises
-  // These values can be adjusted based on testing
+  // Thresholds
   const [thresholds, setThresholds] = useState({
-    "push-up": {
-      upAngle: 160, // Arm almost straight
-      downAngle: 100, // Arm bent
-    },
-    "squat": {
-      upAngle: 160, // Legs almost straight
-      downAngle: 110, // Legs bent
-    },
-    "sit-up": {
-      upAngle: 80,  // Torso raised
-      downAngle: 160, // Torso flat
-    }
+    "push-up": { upAngle: 160, downAngle: 100 },
+    "squat": { upAngle: 160, downAngle: 110 },
+    "sit-up": { upAngle: 80, downAngle: 160 }
   });
   
   // Calibration
   const [isCalibrating, setIsCalibrating] = useState(false);
   const [calibrationStep, setCalibrationStep] = useState<"up" | "down">("up");
-  
+  const [calibrationMessage, setCalibrationMessage] = useState(""); // Message during calibration delay
+
+  // Use refs to hold latest state values for use in the callback
+  // This prevents the useEffect listener from needing these states as dependencies
+  const stateRef = useRef({
+    currentExercise,
+    exerciseState,
+    repCount,
+    thresholds,
+    isCalibrating,
+    calibrationStep,
+    previousState: previousStateRef.current, // Keep track of previous state inside ref too
+    // **** NEW: Include the flag in the ref if needed, though modifying it directly might be okay ****
+    // downAchieved: downStateAchievedInCycle.current
+  });
+
+  // Update refs whenever state changes
   useEffect(() => {
-    // Set up the event listener to listen for pose landmarks detection results
+    stateRef.current = {
+      currentExercise,
+      exerciseState,
+      repCount,
+      thresholds,
+      isCalibrating,
+      calibrationStep,
+      previousState: previousStateRef.current, // Update previous state ref value
+      // downAchieved: downStateAchievedInCycle.current
+    };
+  }, [currentExercise, exerciseState, repCount, thresholds, isCalibrating, calibrationStep, previousStateRef.current]); // Include previousStateRef.current if it changes
+
+   // Define processLandmarks using useCallback to ensure stability if needed as dependency
+   // Note: It now reads state from stateRef.current
+  const processLandmarks = useCallback((body: KeypointsMap) => {
+    const currentState = stateRef.current; // Read state from ref
+
+    if (currentState.currentExercise === "none" || !body || Object.keys(body).length === 0) return;
+    
+    let angle = 0;
+    let visibilityInfo = { joint1: 0, joint2: 0, joint3: 0, valid: false };
+    
+    // Calculate relevant angle based on exercise type
+    if (currentState.currentExercise === "push-up") {
+      const shoulder = body[POSE_LANDMARKS.RIGHT_SHOULDER];
+      const elbow = body[POSE_LANDMARKS.RIGHT_ELBOW];
+      const wrist = body[POSE_LANDMARKS.RIGHT_WRIST];
+      
+      if (shoulder && elbow && wrist) { // Check existence first
+          visibilityInfo = { 
+            joint1: shoulder.visibility, joint2: elbow.visibility, joint3: wrist.visibility, 
+            valid: shoulder.visibility > 0.5 && elbow.visibility > 0.5 && wrist.visibility > 0.5 
+          };
+          if (visibilityInfo.valid) angle = calculateAngle(shoulder, elbow, wrist);
+      }
+    } 
+    else if (currentState.currentExercise === "squat") {
+      const hip = body[POSE_LANDMARKS.RIGHT_HIP];
+      const knee = body[POSE_LANDMARKS.RIGHT_KNEE];
+      const ankle = body[POSE_LANDMARKS.RIGHT_ANKLE];
+      
+      if (hip && knee && ankle) {
+          visibilityInfo = { 
+            joint1: hip.visibility, joint2: knee.visibility, joint3: ankle.visibility, 
+            valid: hip.visibility > 0.5 && knee.visibility > 0.5 && ankle.visibility > 0.5 
+          };
+          if (visibilityInfo.valid) angle = calculateAngle(hip, knee, ankle);
+      }
+    } 
+    else if (currentState.currentExercise === "sit-up") {
+      const shoulder = body[POSE_LANDMARKS.RIGHT_SHOULDER];
+      const hip = body[POSE_LANDMARKS.RIGHT_HIP];
+      const knee = body[POSE_LANDMARKS.RIGHT_KNEE];
+       if (shoulder && hip && knee) {
+          visibilityInfo = { 
+            joint1: shoulder.visibility, joint2: hip.visibility, joint3: knee.visibility, 
+            valid: shoulder.visibility > 0.5 && hip.visibility > 0.5 && knee.visibility > 0.5 
+          };
+          if (visibilityInfo.valid) angle = calculateAngle(shoulder, hip, knee);
+      }
+    }
+
+    // Handle CALIBRATION (Only check angle during the capture phase, not during delay)
+    // Calibration logic is now primarily driven by timeouts set in startCalibration
+    if (currentState.isCalibrating) {
+        // The angle capture happens inside the timeout callback in startCalibration now
+        return; // Prevent normal rep processing during calibration
+    }
+    
+    // Determine exercise state based on the angle only if visibility was good
+    if (visibilityInfo.valid && angle > 0) {
+      const { upAngle, downAngle } = currentState.thresholds[currentState.currentExercise as keyof typeof currentState.thresholds];
+      
+      let newState: ExerciseState = currentState.exerciseState;
+      
+      // For push-ups and squats, up means a larger angle
+      if (currentState.currentExercise === "push-up" || currentState.currentExercise === "squat") {
+        // Check for transitions INTO stable states
+        if (currentState.exerciseState !== "up" && angle >= upAngle) { // Enter UP state by reaching threshold
+          newState = "up";
+        } else if (currentState.exerciseState !== "down" && angle <= downAngle) { // Enter DOWN state by reaching threshold
+          newState = "down";
+        }
+        // Check for transitions OUT OF stable states (using margin)
+        else if (currentState.exerciseState === "up" && angle < upAngle - HYSTERESIS_MARGIN) { // Leave UP state only if angle drops significantly
+          newState = "transitioning";
+        } else if (currentState.exerciseState === "down" && angle > downAngle + HYSTERESIS_MARGIN) { // Leave DOWN state only if angle rises significantly
+           newState = "transitioning";
+        }
+        // If currently transitioning, check if we should settle into a state
+        else if (currentState.exerciseState === "transitioning") {
+            if (angle >= upAngle) newState = "up";
+            else if (angle <= downAngle) newState = "down";
+            // else remain transitioning
+        }
+      } 
+      // For sit-ups, up means a smaller angle (torso more vertical)
+      else if (currentState.currentExercise === "sit-up") {
+        // Check for transitions INTO stable states
+        if (currentState.exerciseState !== "up" && angle <= upAngle) { // Enter UP state (smaller angle)
+          newState = "up";
+        } else if (currentState.exerciseState !== "down" && angle >= downAngle) { // Enter DOWN state (larger angle)
+          newState = "down";
+        }
+         // Check for transitions OUT OF stable states (using margin)
+        else if (currentState.exerciseState === "up" && angle > upAngle + HYSTERESIS_MARGIN) { // Leave UP state only if angle rises significantly
+          newState = "transitioning";
+        } else if (currentState.exerciseState === "down" && angle < downAngle - HYSTERESIS_MARGIN) { // Leave DOWN state only if angle drops significantly
+           newState = "transitioning";
+        }
+        // If currently transitioning, check if we should settle into a state
+        else if (currentState.exerciseState === "transitioning") {
+            if (angle <= upAngle) newState = "up";
+            else if (angle >= downAngle) newState = "down";
+             // else remain transitioning
+        }
+      }
+
+      // Log state changes for debugging
+      if (newState !== currentState.exerciseState) {
+          console.log(`State Change: ${currentState.exerciseState} -> ${newState} (Angle: ${angle.toFixed(1)}, UpThr: ${upAngle.toFixed(1)}, DownThr: ${downAngle.toFixed(1)}, Margin: ${HYSTERESIS_MARGIN})`);
+          // Update the actual state
+          setExerciseState(newState); 
+      
+          // **** NEW: Set the flag when 'down' state is achieved ****
+          if (newState === "down") {
+              console.log("--- Down state achieved in cycle ---");
+              downStateAchievedInCycle.current = true;
+          }
+
+          // **** MODIFIED: Count rep if 'up' is reached AND 'down' was achieved this cycle ****
+          if (newState === "up" && downStateAchievedInCycle.current) {
+             console.log(`REP COUNTED! Down achieved: ${downStateAchievedInCycle.current}, New: ${newState}. Reps: ${currentState.repCount + 1}`);
+             setRepCount(prev => prev + 1);
+             // **** NEW: Reset the flag after counting the rep ****
+             downStateAchievedInCycle.current = false;
+             console.log("--- Resetting down achieved flag ---");
+          }
+
+          // Update the stable previous state ref *only* when the state actually settles into 'up' or 'down'
+          if (newState === "up" || newState === "down") {
+              // console.log(`Updating previousStateRef from ${currentState.previousState} to ${newState}`);
+              previousStateRef.current = newState; 
+          }
+      }
+    } else if (!visibilityInfo.valid) {
+      // Log when landmarks are not reliably visible
+      // console.log(`Skipping state update due to low visibility for ${currentState.currentExercise}`);
+      // Optionally: revert to a 'neutral' or 'unknown' state? Or just hold the last known state?
+      // For now, we just don't update state if visibility is bad.
+    }
+  }, []); // Empty dependency array - processLandmarks definition is stable
+
+  useEffect(() => {
+    // Setup the listener
     const subscription = poseLandmarksEmitter.addListener(
       "onPoseLandmarksDetected",
       (event) => {
-        // Update the landmarks shared value to paint them on the screen
-        /*
-          The event contains values for landmarks and pose.
-          These values are defined in the PoseLandmarkerResultProcessor class
-          found in the PoseLandmarks.swift file.
-        */
-        landmarks.value = event.landmarks[0];
-        
-        // Process landmarks for exercise detection when not in frame processor
-        if (event.landmarks[0] && Object.keys(event.landmarks[0]).length > 0) {
-          processLandmarks(event.landmarks[0]);
+        if (event.landmarks && event.landmarks.length > 0 && event.landmarks[0]) {
+            landmarks.value = event.landmarks[0]; // Update shared value for drawing
+            processLandmarks(event.landmarks[0]); // Process the landmarks
+        } else {
+            // console.log("Received event with no landmarks[0]");
         }
       }
     );
     
-    // Clean up the event listener when the component is unmounted
+    console.log("PoseLandmarks listener ADDED"); 
+
+    // Cleanup function
     return () => {
+      console.log("PoseLandmarks listener REMOVING"); 
       subscription.remove();
     };
-  }, [currentExercise, exerciseState, thresholds, isCalibrating, calibrationStep]);
+  }, [processLandmarks]); // Re-run only if processLandmarks definition changes (it won't due to useCallback)
+
 
   useEffect(() => {
     requestPermission().catch((error) => console.log(error));
   }, [requestPermission]);
 
-  // Process landmarks for exercise counting
-  const processLandmarks = (body: KeypointsMap) => {
-    if (currentExercise === "none" || !body || Object.keys(body).length === 0) return;
-    
-    let angle = 0;
-    
-    // Calculate relevant angle based on exercise type
-    if (currentExercise === "push-up") {
-      // For push-up, we measure the angle at the elbow (shoulder-elbow-wrist)
-      // Using right arm for demonstration
-      const shoulder = body[POSE_LANDMARKS.RIGHT_SHOULDER];
-      const elbow = body[POSE_LANDMARKS.RIGHT_ELBOW];
-      const wrist = body[POSE_LANDMARKS.RIGHT_WRIST];
-      
-      if (shoulder && elbow && wrist && 
-          shoulder.visibility > 0.5 && 
-          elbow.visibility > 0.5 && 
-          wrist.visibility > 0.5) {
-        angle = calculateAngle(shoulder, elbow, wrist);
-      }
-    } 
-    else if (currentExercise === "squat") {
-      // For squat, we measure the angle at the knee (hip-knee-ankle)
-      // Using right leg for demonstration
-      const hip = body[POSE_LANDMARKS.RIGHT_HIP];
-      const knee = body[POSE_LANDMARKS.RIGHT_KNEE];
-      const ankle = body[POSE_LANDMARKS.RIGHT_ANKLE];
-      
-      if (hip && knee && ankle && 
-          hip.visibility > 0.5 && 
-          knee.visibility > 0.5 && 
-          ankle.visibility > 0.5) {
-        angle = calculateAngle(hip, knee, ankle);
-      }
-    } 
-    else if (currentExercise === "sit-up") {
-      // For sit-up, we measure the angle between shoulders, hips, and knees
-      // Using right side for demonstration
-      const shoulder = body[POSE_LANDMARKS.RIGHT_SHOULDER];
-      const hip = body[POSE_LANDMARKS.RIGHT_HIP];
-      const knee = body[POSE_LANDMARKS.RIGHT_KNEE];
-      
-      if (shoulder && hip && knee && 
-          shoulder.visibility > 0.5 && 
-          hip.visibility > 0.5 && 
-          knee.visibility > 0.5) {
-        angle = calculateAngle(shoulder, hip, knee);
-      }
-    }
-    
-    // Handle calibration if active
-    if (isCalibrating && angle > 0) {
-      if (calibrationStep === "up") {
-        // Store the "up" position angle
-        setThresholds(prev => ({
-          ...prev,
-          [currentExercise]: {
-            ...prev[currentExercise as keyof typeof prev],
-            upAngle: angle
-          }
-        }));
-        setCalibrationStep("down");
-      } else if (calibrationStep === "down") {
-        // Store the "down" position angle
-        setThresholds(prev => ({
-          ...prev,
-          [currentExercise]: {
-            ...prev[currentExercise as keyof typeof prev],
-            downAngle: angle
-          }
-        }));
-        setIsCalibrating(false);
-        setCalibrationStep("up");
-      }
-      return;
-    }
-    
-    // Determine exercise state based on the angle
-    if (angle > 0) {
-      const { upAngle, downAngle } = thresholds[currentExercise as keyof typeof thresholds];
-      
-      let newState: ExerciseState = exerciseState;
-      
-      // For push-ups and squats, up means a larger angle
-      if (currentExercise === "push-up" || currentExercise === "squat") {
-        if (angle >= upAngle) {
-          newState = "up";
-        } else if (angle <= downAngle) {
-          newState = "down";
-        } else {
-          newState = "transitioning";
-        }
-      } 
-      // For sit-ups, up means a smaller angle (torso more vertical)
-      else if (currentExercise === "sit-up") {
-        if (angle <= upAngle) {
-          newState = "up";
-        } else if (angle >= downAngle) {
-          newState = "down";
-        } else {
-          newState = "transitioning";
-        }
-      }
-      
-      // Count a rep when transitioning from down to up
-      if (previousStateRef.current === "down" && newState === "up") {
-        setRepCount(prev => prev + 1);
-      }
-      
-      previousStateRef.current = newState;
-      setExerciseState(newState);
-    }
-  };
 
   const frameProcessor = useSkiaFrameProcessor(
     (frame) => {
       "worklet";
-      // Process the frame using the 'poseLandmarks' function
+      // --- Frame processor logic remains the same ---
+      frameSkipCounter.value++;
+      const shouldProcess = frameSkipCounter.value >= PROCESS_EVERY_NTH_FRAME;
+      if (shouldProcess) {
+        frameSkipCounter.value = 0;
+        poseLandmarks(frame);
+      }
       frame.render();
-      poseLandmarks(frame);
-      
-      if (
-        landmarks?.value !== undefined &&
-        Object.keys(landmarks?.value).length > 0
-      ) {
-        let body = landmarks?.value;
+      if ( landmarks?.value != null && typeof landmarks.value === 'object' && Object.keys(landmarks.value).length > 0 ) {
+        let body = landmarks.value;
         let frameWidth = frame.width;
         let frameHeight = frame.height;
-        
-        // Draw line on landmarks
         if (showLines) {
           for (let [from, to] of LINES) {
-            frame.drawLine(
-              body[from].x * Number(frameWidth),
-              body[from].y * Number(frameHeight),
-              body[to].x * Number(frameWidth),
-              body[to].y * Number(frameHeight),
-              linePaint
-            );
+            const fromPoint = body[from];
+            const toPoint = body[to];
+            if (fromPoint && toPoint) {
+              frame.drawLine( fromPoint.x * Number(frameWidth), fromPoint.y * Number(frameHeight), toPoint.x * Number(frameWidth), toPoint.y * Number(frameHeight), linePaint );
+            }
           }
-        } 
-        
-        // Draw circles on landmarks
+        }
         if (showCircles) {
           for (let mark of Object.values(body)) {
-            frame.drawCircle(
-              mark.x * Number(frameWidth),
-              mark.y * Number(frameHeight),
-              6,
-              circlePaint
-            );
+            if (mark) {
+              frame.drawCircle( mark.x * Number(frameWidth), mark.y * Number(frameHeight), 6, circlePaint );
+            }
           }
         }
       }
+      // --- End Frame processor logic ---
     },
-    [showLines, showCircles]
+    [showLines, showCircles] // Dependencies remain the same
   );
   
+  // Calibration function with delay timer
   const startCalibration = () => {
-    if (currentExercise === "none") return;
+    if (currentExercise === "none" || isCalibrating) return; // Prevent starting if none selected or already calibrating
     
+    console.log(`Starting calibration for ${currentExercise}`);
     setIsCalibrating(true);
     setCalibrationStep("up");
-    alert(`Please assume the UP position for your ${currentExercise} and hold.`);
+    setCalibrationMessage(`Get ready for UP pose... 3`); // Initial message
+    
+    // Countdown timer
+    let countdown = 3;
+    const intervalId = setInterval(() => {
+        countdown--;
+        setCalibrationMessage(`Get ready for UP pose... ${countdown}`);
+        if (countdown === 0) {
+            clearInterval(intervalId);
+            setCalibrationMessage(`Capturing UP pose... HOLD!`);
+            
+            // --- Capture UP Angle ---
+            // Read landmarks directly from shared value *at the moment of capture*
+            const currentLandmarks = landmarks.value; 
+            if (currentLandmarks && Object.keys(currentLandmarks).length > 0) {
+                let angle = 0;
+                let visibilityValid = false;
+                // Calculate angle based on current exercise (similar logic as processLandmarks)
+                if (currentExercise === "push-up") {
+                    const s = currentLandmarks[POSE_LANDMARKS.RIGHT_SHOULDER], e = currentLandmarks[POSE_LANDMARKS.RIGHT_ELBOW], w = currentLandmarks[POSE_LANDMARKS.RIGHT_WRIST];
+                    visibilityValid = !!(s && e && w && s.visibility > 0.5 && e.visibility > 0.5 && w.visibility > 0.5);
+                    if (visibilityValid) angle = calculateAngle(s, e, w);
+                } else if (currentExercise === "squat") {
+                    const h = currentLandmarks[POSE_LANDMARKS.RIGHT_HIP], k = currentLandmarks[POSE_LANDMARKS.RIGHT_KNEE], a = currentLandmarks[POSE_LANDMARKS.RIGHT_ANKLE];
+                    visibilityValid = !!(h && k && a && h.visibility > 0.5 && k.visibility > 0.5 && a.visibility > 0.5);
+                    if (visibilityValid) angle = calculateAngle(h, k, a);
+                } else if (currentExercise === "sit-up") {
+                    const s = currentLandmarks[POSE_LANDMARKS.RIGHT_SHOULDER], h = currentLandmarks[POSE_LANDMARKS.RIGHT_HIP], k = currentLandmarks[POSE_LANDMARKS.RIGHT_KNEE];
+                    visibilityValid = !!(s && h && k && s.visibility > 0.5 && h.visibility > 0.5 && k.visibility > 0.5);
+                    if (visibilityValid) angle = calculateAngle(s, h, k);
+                }
+
+                if (visibilityValid && angle > 0) {
+                    console.log(`Calibration: Setting UP angle for ${currentExercise} to ${angle.toFixed(1)}`);
+                    setThresholds(prev => ({ ...prev, [currentExercise]: { ...prev[currentExercise as keyof typeof prev], upAngle: angle } }));
+                    
+                    // Proceed to DOWN step after a short pause
+                    setTimeout(() => {
+                        setCalibrationStep("down");
+                        setCalibrationMessage(`Get ready for DOWN pose... 3`);
+                        let downCountdown = 3;
+                        const downIntervalId = setInterval(() => {
+                            downCountdown--;
+                            setCalibrationMessage(`Get ready for DOWN pose... ${downCountdown}`);
+                            if (downCountdown === 0) {
+                                clearInterval(downIntervalId);
+                                setCalibrationMessage(`Capturing DOWN pose... HOLD!`);
+
+                                // --- Capture DOWN Angle ---
+                                const downLandmarks = landmarks.value; // Read landmarks again
+                                if (downLandmarks && Object.keys(downLandmarks).length > 0) {
+                                    let downAngle = 0;
+                                    let downVisibilityValid = false;
+                                    // Calculate angle again
+                                      if (currentExercise === "push-up") {
+                                          const s = downLandmarks[POSE_LANDMARKS.RIGHT_SHOULDER], e = downLandmarks[POSE_LANDMARKS.RIGHT_ELBOW], w = downLandmarks[POSE_LANDMARKS.RIGHT_WRIST];
+                                          downVisibilityValid = !!(s && e && w && s.visibility > 0.5 && e.visibility > 0.5 && w.visibility > 0.5);
+                                          if (downVisibilityValid) downAngle = calculateAngle(s, e, w);
+                                      } else if (currentExercise === "squat") {
+                                          const h = downLandmarks[POSE_LANDMARKS.RIGHT_HIP], k = downLandmarks[POSE_LANDMARKS.RIGHT_KNEE], a = downLandmarks[POSE_LANDMARKS.RIGHT_ANKLE];
+                                          downVisibilityValid = !!(h && k && a && h.visibility > 0.5 && k.visibility > 0.5 && a.visibility > 0.5);
+                                          if (downVisibilityValid) downAngle = calculateAngle(h, k, a);
+                                      } else if (currentExercise === "sit-up") {
+                                          const s = downLandmarks[POSE_LANDMARKS.RIGHT_SHOULDER], h = downLandmarks[POSE_LANDMARKS.RIGHT_HIP], k = downLandmarks[POSE_LANDMARKS.RIGHT_KNEE];
+                                          downVisibilityValid = !!(s && h && k && s.visibility > 0.5 && h.visibility > 0.5 && k.visibility > 0.5);
+                                          if (downVisibilityValid) downAngle = calculateAngle(s, h, k);
+                                      }
+
+                                    if (downVisibilityValid && downAngle > 0) {
+                                        console.log(`Calibration: Setting DOWN angle for ${currentExercise} to ${downAngle.toFixed(1)}`);
+                                        setThresholds(prev => ({ ...prev, [currentExercise]: { ...prev[currentExercise as keyof typeof prev], downAngle: downAngle } }));
+                                        
+                                        // Finish calibration
+                                        setCalibrationMessage(`Calibration Complete!`);
+                                        setTimeout(() => { // Clear message after a bit
+                                             setIsCalibrating(false);
+                                             setCalibrationMessage("");
+                                             setCalibrationStep("up"); // Reset for next time
+                                        }, 2000);
+                                    } else {
+                                        Alert.alert("Calibration Failed", "Could not detect pose clearly for DOWN position. Please try again.");
+                                        setIsCalibrating(false);
+                                        setCalibrationMessage("");
+                                    }
+                                } else {
+                                     Alert.alert("Calibration Failed", "Could not see you clearly for DOWN position. Please try again.");
+                                     setIsCalibrating(false);
+                                     setCalibrationMessage("");
+                                }
+                            }
+                        }, 1000);
+                    }, 500); // Short pause before starting down countdown
+
+                } else {
+                    Alert.alert("Calibration Failed", "Could not detect pose clearly for UP position. Please try again.");
+                    setIsCalibrating(false);
+                    setCalibrationMessage("");
+                }
+            } else {
+                 Alert.alert("Calibration Failed", "Could not see you clearly for UP position. Please try again.");
+                 setIsCalibrating(false);
+                 setCalibrationMessage("");
+            }
+        }
+    }, 1000); // 1 second interval for countdown
   };
   
+  // Reset function remains the same
   const resetExercise = () => {
+     console.log(`Resetting exercise. Exercise: ${currentExercise}, Reps: ${repCount}`);
     setRepCount(0);
     setExerciseState("up");
-    previousStateRef.current = "up";
+    previousStateRef.current = "up"; // Reset stable previous state too
+    // **** NEW: Reset the flag on exercise reset ****
+    downStateAchievedInCycle.current = false;
+    setIsCalibrating(false); // Ensure calibration is cancelled
+    setCalibrationMessage("");
   };
 
-  if (!hasPermission) {
+  // --- Permission/Device Checks (remain the same) ---
+   if (!hasPermission) {
     return <Text>No permission</Text>;
   }
-  
   if (device == null) {
     return <Text>No device</Text>;
   }
-  
   const pixelFormat = Platform.OS === "ios" ? "rgb" : "yuv";
+  // --- End Checks ---
 
   return (
     <>
@@ -451,51 +615,41 @@ export default function Exercise() {
         videoHdr={false}
         enableBufferCompression={true}
         photo={false}
-        fps={30}
+        fps={30} // Consider if 30fps is needed or if lower is okay
       />
       
       {/* Exercise controls overlay */}
       <View style={styles.exerciseControls}>
         <Text style={styles.heading}>FitQuest</Text>
         
+        {/* Calibration Message Overlay */}
+        {isCalibrating && calibrationMessage && (
+            <View style={styles.calibrationOverlay}>
+                <Text style={styles.calibrationText}>{calibrationMessage}</Text>
+            </View>
+        )}
+
         <View style={styles.exerciseSelector}>
           <Text style={styles.label}>Select Exercise:</Text>
           <View style={styles.buttonGroup}>
             <TouchableOpacity
-              style={[
-                styles.exerciseButton,
-                currentExercise === "push-up" && styles.activeButton
-              ]}
-              onPress={() => {
-                setCurrentExercise("push-up");
-                resetExercise();
-              }}
+              style={[ styles.exerciseButton, currentExercise === "push-up" && styles.activeButton ]}
+              onPress={() => { setCurrentExercise("push-up"); resetExercise(); }}
+              disabled={isCalibrating} // Disable during calibration
             >
               <Text style={styles.buttonText}>Push-up</Text>
             </TouchableOpacity>
-            
             <TouchableOpacity
-              style={[
-                styles.exerciseButton,
-                currentExercise === "squat" && styles.activeButton
-              ]}
-              onPress={() => {
-                setCurrentExercise("squat");
-                resetExercise();
-              }}
+              style={[ styles.exerciseButton, currentExercise === "squat" && styles.activeButton ]}
+              onPress={() => { setCurrentExercise("squat"); resetExercise(); }}
+               disabled={isCalibrating} // Disable during calibration
             >
               <Text style={styles.buttonText}>Squat</Text>
             </TouchableOpacity>
-            
             <TouchableOpacity
-              style={[
-                styles.exerciseButton,
-                currentExercise === "sit-up" && styles.activeButton
-              ]}
-              onPress={() => {
-                setCurrentExercise("sit-up");
-                resetExercise();
-              }}
+              style={[ styles.exerciseButton, currentExercise === "sit-up" && styles.activeButton ]}
+              onPress={() => { setCurrentExercise("sit-up"); resetExercise(); }}
+               disabled={isCalibrating} // Disable during calibration
             >
               <Text style={styles.buttonText}>Sit-up</Text>
             </TouchableOpacity>
@@ -514,20 +668,20 @@ export default function Exercise() {
             
             <View style={styles.actionButtons}>
               <TouchableOpacity
-                style={styles.actionButton}
+                style={[styles.actionButton, isCalibrating && styles.disabledButton]} // Style when disabled
                 onPress={startCalibration}
-                disabled={isCalibrating}
+                disabled={isCalibrating} // Disable button itself
               >
                 <Text style={styles.buttonText}>
-                  {isCalibrating 
-                    ? `Hold ${calibrationStep.toUpperCase()} Position` 
-                    : "Calibrate"}
+                   {/* Keep button text simple */}
+                  Calibrate 
                 </Text>
               </TouchableOpacity>
               
               <TouchableOpacity
-                style={styles.actionButton}
+                style={[styles.actionButton, isCalibrating && styles.disabledButton]} // Style when disabled
                 onPress={resetExercise}
+                disabled={isCalibrating} // Disable during calibration
               >
                 <Text style={styles.buttonText}>Reset</Text>
               </TouchableOpacity>
@@ -542,21 +696,22 @@ export default function Exercise() {
 const styles = StyleSheet.create({
   drawControl: {
     position: "absolute",
-    top: 0,
+    top: 0, // Adjust if needed based on safe areas/notch
     left: 0,
     right: 0,
-    zIndex: 10,
-    backgroundColor: "#FFF",
+    zIndex: 20, // Ensure above camera but potentially below calibration message
+    backgroundColor: "rgba(255, 255, 255, 0.7)", // Slightly transparent
     flexDirection: "row",
-    justifyContent: "space-between",
-    padding: 10,
+    justifyContent: "space-around", // Space out buttons
+    paddingVertical: 8,
+    paddingHorizontal: 10,
   },
   exerciseControls: {
     position: "absolute",
-    bottom: 20,
-    left: 20,
-    right: 20,
-    backgroundColor: "rgba(0,0,0,0.7)",
+    bottom: 30, // Adjust for safe areas if needed
+    left: 15,
+    right: 15,
+    backgroundColor: "rgba(0,0,0,0.75)",
     borderRadius: 15,
     padding: 15,
     zIndex: 10,
@@ -595,6 +750,7 @@ const styles = StyleSheet.create({
   buttonText: {
     color: "#FFF",
     fontWeight: "600",
+    textAlign: "center",
   },
   repCounter: {
     alignItems: "center",
@@ -613,15 +769,43 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: "#FFF",
     marginTop: 5,
+    fontStyle: 'italic', // Differentiate state label
   },
   actionButtons: {
     flexDirection: "row",
     justifyContent: "space-evenly",
+    marginTop: 10, // Add some space above action buttons
   },
   actionButton: {
-    backgroundColor: "#28a745",
+    backgroundColor: "#28a745", // Green for calibrate/reset
     paddingVertical: 12,
     paddingHorizontal: 25,
     borderRadius: 8,
+    minWidth: 100, // Ensure buttons have some minimum width
+    alignItems: 'center',
   },
+  disabledButton: {
+      backgroundColor: "#6c757d", // Gray out when disabled
+      opacity: 0.7,
+  },
+  // --- New styles for calibration overlay ---
+  calibrationOverlay: {
+      position: 'absolute', // Position it over the controls or screen center
+      top: 0, // Adjust as needed - maybe center it?
+      left: 0,
+      right: 0,
+      bottom: 0,
+      backgroundColor: 'rgba(0, 0, 0, 0.8)', // Dark overlay
+      justifyContent: 'center',
+      alignItems: 'center',
+      zIndex: 50, // Make sure it's on top
+      borderRadius: 15, // Match controls panel if desired
+  },
+  calibrationText: {
+      fontSize: 28,
+      fontWeight: 'bold',
+      color: '#FFF',
+      textAlign: 'center',
+      padding: 20,
+  }
 });

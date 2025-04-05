@@ -1,5 +1,5 @@
 import { Stack } from "expo-router";
-import { COLORS } from "@/constants/theme";
+import { COLORS } from "../constants/theme";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 
 export default function RootLayout() {

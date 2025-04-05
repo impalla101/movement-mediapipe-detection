@@ -1,7 +1,7 @@
 import { Tabs } from 'expo-router'
 import { View, Text } from 'react-native'
 import React from 'react'
-import { COLORS } from '@/constants/theme'
+import { COLORS } from '../../constants/theme'
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons'
 import MaterialIcons from '@expo/vector-icons/MaterialIcons'
 

@@ -1,46 +1,99 @@
 import React from 'react';
 import { View, Text, StyleSheet, ScrollView, Image, Pressable } from 'react-native';
-import { COLORS, FONTS } from '@/constants/theme';
+import { useRouter } from 'expo-router'; // Import useRouter
+import { COLORS, FONTS } from '../../constants/theme';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 
-// --- Placeholder Data ---
-const userName = 'andrew_s';
+// --- Placeholder Data & Auth ---
+const userName = 'andrew_s'; // Replace with actual user data later
 const userRP = 1470;
+const isLoggedIn = true; // Placeholder - use actual auth state later
+const useAuth = () => ({ userId: isLoggedIn ? 'mock_user_123' : null, isLoading: false });
+// --- End Placeholders ---
+
+
 const avatarShopItems = [
-  { id: '1', name: 'Headband', rp: 250, imagePlaceholderColor: '#ffcc00' }, // Yellow
-  { id: '2', name: 'Sunglasses', rp: 400, imagePlaceholderColor: '#6c757d' }, // Gray
-  { id: '3', name: 'Tank Top', rp: 600, imagePlaceholderColor: '#fd7e14' }, // Orange
-  // Add more items
+  { id: '1', name: 'Headband', rp: 250, imagePlaceholderColor: '#ffcc00' },
+  { id: '2', name: 'Sunglasses', rp: 400, imagePlaceholderColor: '#6c757d' },
+  { id: '3', name: 'Tank Top', rp: 600, imagePlaceholderColor: '#fd7e14' },
 ];
-// --- End Placeholder Data ---
+
 
 export default function Profile() {
+  const router = useRouter();
+  const { userId } = useAuth(); // Get user ID for conditional rendering/navigation
+
+  const navigateToAccount = () => {
+      // Later, this might go to /account or /login depending on auth state
+      if (userId) {
+          console.log("Navigate to Account Details page (not implemented)");
+          // router.push('/accountDetails'); // Example future path
+      } else {
+           console.log("Navigate to Login/Signup page (not implemented)");
+          // router.push('/auth'); // Example future path for login/signup flow
+      }
+  };
+
+  const navigateToSettings = () => {
+      console.log("Navigate to Settings page (not implemented)");
+      // router.push('/settings'); // Example future path
+  };
+
+  const navigateToHelp = () => {
+      console.log("Navigate to Help page (not implemented)");
+      // router.push('/help'); // Example future path
+  };
+
+  const navigateToWorkoutBuilder = () => {
+       console.log("Navigate to Workout Builder page (not implemented)");
+       // router.push('/workoutBuilder'); // Example future path
+  };
+
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
 
       {/* User Info Section */}
       <View style={styles.userInfoSection}>
         <View style={styles.userInfoTextContainer}>
-          <Text style={styles.username}>{userName}</Text>
-          <View style={styles.rpContainer}>
-            <Image source={require('@/assets/images/coin.png')} style={styles.coinIcon} />
-            <Text style={styles.rpText}>{userRP.toLocaleString()} RP</Text>
-          </View>
+          {/* Conditionally show username or login prompt? */}
+          <Text style={styles.username}>{userId ? userName : 'Guest'}</Text>
+          {userId && (
+            <View style={styles.rpContainer}>
+              <Image source={require('@/assets/images/coin.png')} style={styles.coinIcon} />
+              <Text style={styles.rpText}>{userRP.toLocaleString()} RP</Text>
+            </View>
+          )}
         </View>
+        {/* Conditionally show avatar or placeholder? */}
         <Image source={require('@/assets/images/avatar.png')} style={styles.avatar} />
       </View>
+
+      {/* --- Workout Builder Link (Only if logged in?) --- */}
+      {userId && (
+        <View style={styles.sectionContainer}>
+          <Pressable style={[styles.linkItem, styles.builderLink]} onPress={navigateToWorkoutBuilder}>
+                <View>
+                    <Text style={styles.linkText}>Workout Builder</Text>
+                    <Text style={styles.linkSubText}>Create your custom routines</Text>
+                </View>
+                <MaterialIcons name="add-circle-outline" size={24} color={COLORS.primary} />
+          </Pressable>
+        </View>
+      )}
 
       {/* Avatar Shop Section */}
       <View style={styles.sectionContainer}>
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Avatar Shop</Text>
-          <MaterialIcons name="arrow-forward-ios" size={18} color={COLORS.textLight} />
+          {/* Link to full shop page? */}
+          {/* <MaterialIcons name="arrow-forward-ios" size={18} color={COLORS.textLight} /> */}
         </View>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.shopScrollContainer}>
           {avatarShopItems.map((item) => (
             <View key={item.id} style={styles.shopItemCard}>
               <View style={[styles.itemImagePlaceholder, { backgroundColor: item.imagePlaceholderColor }]}>
-                 {/* Placeholder View */}
+                 {/* Placeholder */}
               </View>
               <Text style={styles.itemName}>{item.name}</Text>
               <View style={styles.itemRpContainer}>
@@ -54,15 +107,15 @@ export default function Profile() {
 
       {/* Links Section */}
       <View style={styles.linksSectionContainer}>
-        <Pressable style={styles.linkItem} onPress={() => console.log('Account Pressed')}>
-          <Text style={styles.linkText}>Account</Text>
+        <Pressable style={styles.linkItem} onPress={navigateToAccount}>
+          <Text style={styles.linkText}>{userId ? 'Account' : 'Login / Sign Up'}</Text>
           <MaterialIcons name="arrow-forward-ios" size={18} color={COLORS.textLight} />
         </Pressable>
-        <Pressable style={styles.linkItem} onPress={() => console.log('Settings Pressed')}>
+        <Pressable style={styles.linkItem} onPress={navigateToSettings}>
           <Text style={styles.linkText}>Settings</Text>
           <MaterialIcons name="arrow-forward-ios" size={18} color={COLORS.textLight} />
         </Pressable>
-        <Pressable style={styles.linkItem} onPress={() => console.log('Help & Support Pressed')}>
+        <Pressable style={styles.linkItem} onPress={navigateToHelp}>
           <Text style={styles.linkText}>Help & Support</Text>
           <MaterialIcons name="arrow-forward-ios" size={18} color={COLORS.textLight} />
         </Pressable>
@@ -72,15 +125,16 @@ export default function Profile() {
   );
 }
 
+// --- Styles --- (Add builderLink and linkSubText styles)
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f8f9fa',
   },
   contentContainer: {
-    paddingVertical: 30, // Add more padding at the top/bottom
+    paddingVertical: 30,
+    paddingBottom: 50, // Ensure space at bottom
   },
-  // User Info Styles
   userInfoSection: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -110,36 +164,34 @@ const styles = StyleSheet.create({
   },
   rpText: {
     fontSize: 18,
-    fontWeight: '600', // Semi-bold
+    fontWeight: '600',
     color: COLORS.textLight,
   },
   avatar: {
-    width: 80, // Adjust size as needed
+    width: 80,
     height: 130,
     resizeMode: 'contain',
-    marginLeft: 15, // Space between text and avatar
+    marginLeft: 15,
     marginRight: 50,
   },
-  // Section Styles (used for Shop and Links)
   sectionContainer: {
     marginBottom: 30,
-    paddingLeft: 20, // Start padding for horizontal scroll
+    paddingLeft: 20,
   },
   sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 15,
-    paddingRight: 20, // Padding for the arrow icon
+    paddingRight: 20,
   },
   sectionTitle: {
     fontSize: 22,
     fontWeight: 'bold',
     color: COLORS.text,
   },
-  // Avatar Shop Styles
   shopScrollContainer: {
-     paddingRight: 20, // Padding at the end of the scroll
+     paddingRight: 20,
   },
   shopItemCard: {
     backgroundColor: COLORS.white,
@@ -147,8 +199,7 @@ const styles = StyleSheet.create({
     padding: 10,
     alignItems: 'center',
     marginRight: 15,
-    width: 120, // Fixed width for cards
-    // Shadows
+    width: 120,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
@@ -160,7 +211,6 @@ const styles = StyleSheet.create({
     height: 60,
     borderRadius: 8,
     marginBottom: 10,
-    // Background color set dynamically
   },
   itemName: {
     fontSize: 15,
@@ -183,9 +233,9 @@ const styles = StyleSheet.create({
     color: COLORS.textLight,
     fontWeight: '500',
   },
-  // Links Section Styles
   linksSectionContainer: {
       paddingHorizontal: 20,
+       marginTop: 10, // Add space above links if builder is present
   },
   linkItem: {
     backgroundColor: COLORS.white,
@@ -196,16 +246,25 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 12,
-     // Shadows
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
     shadowRadius: 2,
     elevation: 2,
   },
+   builderLink: { // Style for the builder link specifically
+       borderColor: COLORS.primary,
+       borderWidth: 1,
+       paddingVertical: 12, // Slightly less padding
+   },
   linkText: {
     fontSize: 18,
     fontWeight: '500',
     color: COLORS.text,
+  },
+  linkSubText: { // Style for the subtext in builder link
+      fontSize: 14,
+      color: COLORS.textLight,
+      marginTop: 2,
   },
 });

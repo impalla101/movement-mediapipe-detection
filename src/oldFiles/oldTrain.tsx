@@ -1,6 +1,6 @@
 import React from 'react'
 import { View, Text, StyleSheet, ScrollView, Image, Pressable } from 'react-native'
-import { COLORS, FONTS } from '@/constants/theme'
+import { COLORS, FONTS } from '../constants/theme'
 
 // Placeholder data for workouts - replace with actual data later
 const workouts = [

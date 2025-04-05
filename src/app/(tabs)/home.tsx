@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, ScrollView, Image, Pressable } from 'react-native';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
-import { COLORS } from '@/constants/theme';
+import { COLORS } from '../../constants/theme';
 import { Link } from 'expo-router';
 
 // Placeholder data - eventually this will come from your app's state or API
@@ -45,7 +45,7 @@ export default function Home() {
       </View>
 
       {/* Daily Challenge Button */}
-      <Link href="/exercise" asChild>
+      <Link href="/workoutSession" asChild>
         <Pressable style={styles.dailyChallengeButton} >
           <Text style={styles.dailyChallengeButtonText}>Daily Challenge</Text>
         </Pressable>
@@ -61,10 +61,9 @@ export default function Home() {
 
         {/* Tip Card */}
         <View style={styles.tipCard}>
-          {/* TODO: Add Lightbulb Icon */}
           <View style={styles.lightbulbIconPlaceholder}>
             <MaterialIcons name="lightbulb-outline" size={28} color={COLORS.primary} />
-            </View>
+          </View>
           <Text style={styles.tipText}>{tipText}</Text>
         </View>
         {/* Add more tip cards here if needed, maybe in a horizontal ScrollView */}

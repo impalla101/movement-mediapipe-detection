@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet, ScrollView, Image } from 'react-native';
-import { COLORS, FONTS } from '@/constants/theme';
+import { COLORS, FONTS } from '../../constants/theme';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons'; // For arrow icon
 
 // --- Placeholder Data ---

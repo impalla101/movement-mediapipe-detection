@@ -145,7 +145,12 @@ const POSE_LANDMARKS = {
 };
 
 // Helper function to calculate angle between three points
-function calculateAngle(a: KeypointData, b: KeypointData, c: KeypointData) {
+function calculateAngle(a: KeypointData, b: KeypointData, c: KeypointData): number {
+    // Basic null/undefined check for input points
+    if (!a || !b || !c) {
+        console.warn("calculateAngle received invalid KeypointData:", a, b, c);
+        return 0; // Return 0 or throw error? Returning 0 might be safer.
+    }
   // Convert to vectors
   const ab = { x: a.x - b.x, y: a.y - b.y };
   const cb = { x: c.x - b.x, y: c.y - b.y };
@@ -170,7 +175,8 @@ function calculateAngle(a: KeypointData, b: KeypointData, c: KeypointData) {
 
 // Configuration
 const CALIBRATION_DELAY_MS = 3000; // 3 seconds delay for calibration
-const HYSTERESIS_MARGIN = 3; // Degrees - Adjust this value based on testing!
+const HYSTERESIS_MARGIN = 5; // Degrees - Increased margin slightly for multi-joint check
+const VISIBILITY_THRESHOLD = 0.5; // Minimum visibility score for a landmark
 
 export default function Exercise() {
   const landmarks = useSharedValue<KeypointsMap>({});
@@ -186,25 +192,22 @@ export default function Exercise() {
   const [currentExercise, setCurrentExercise] = useState<ExerciseType>("none");
   const [repCount, setRepCount] = useState(0);
   const [exerciseState, setExerciseState] = useState<ExerciseState>("up");
-  // Use useRef to hold the *previous stable* state for rep counting logic
   const previousStateRef = useRef<ExerciseState>("up");
-  // **** NEW: Flag to track if 'down' state was hit during the current rep cycle ****
   const downStateAchievedInCycle = useRef(false);
   
   // Thresholds
   const [thresholds, setThresholds] = useState({
     "push-up": { upAngle: 160, downAngle: 100 },
-    "squat": { upAngle: 160, downAngle: 110 },
+    "squat": { upAngle: 160, downAngle: 110 }, // Default/initial squat thresholds
     "sit-up": { upAngle: 80, downAngle: 160 }
   });
   
   // Calibration
   const [isCalibrating, setIsCalibrating] = useState(false);
   const [calibrationStep, setCalibrationStep] = useState<"up" | "down">("up");
-  const [calibrationMessage, setCalibrationMessage] = useState(""); // Message during calibration delay
+  const [calibrationMessage, setCalibrationMessage] = useState(""); 
 
   // Use refs to hold latest state values for use in the callback
-  // This prevents the useEffect listener from needing these states as dependencies
   const stateRef = useRef({
     currentExercise,
     exerciseState,
@@ -212,9 +215,7 @@ export default function Exercise() {
     thresholds,
     isCalibrating,
     calibrationStep,
-    previousState: previousStateRef.current, // Keep track of previous state inside ref too
-    // **** NEW: Include the flag in the ref if needed, though modifying it directly might be okay ****
-    // downAchieved: downStateAchievedInCycle.current
+    previousState: previousStateRef.current, 
   });
 
   // Update refs whenever state changes
@@ -226,185 +227,216 @@ export default function Exercise() {
       thresholds,
       isCalibrating,
       calibrationStep,
-      previousState: previousStateRef.current, // Update previous state ref value
-      // downAchieved: downStateAchievedInCycle.current
+      previousState: previousStateRef.current, 
     };
-  }, [currentExercise, exerciseState, repCount, thresholds, isCalibrating, calibrationStep, previousStateRef.current]); // Include previousStateRef.current if it changes
+  }, [currentExercise, exerciseState, repCount, thresholds, isCalibrating, calibrationStep, previousStateRef.current]); 
 
-   // Define processLandmarks using useCallback to ensure stability if needed as dependency
-   // Note: It now reads state from stateRef.current
+  // --- Process Landmarks Callback ---
   const processLandmarks = useCallback((body: KeypointsMap) => {
-    const currentState = stateRef.current; // Read state from ref
+    const currentState = stateRef.current; 
 
     if (currentState.currentExercise === "none" || !body || Object.keys(body).length === 0) return;
+    if (currentState.isCalibrating) return; // Prevent normal processing during calibration
+
+    const { upAngle, downAngle } = currentState.thresholds[currentState.currentExercise as keyof typeof currentState.thresholds];
+    let newState: ExerciseState = currentState.exerciseState;
+    let angleInfo = { valid: false, rAngle: 0, lAngle: 0, primaryAngle: 0 }; // Store relevant angles
+
+    // --- EXERCISE SPECIFIC LOGIC ---
     
-    let angle = 0;
-    let visibilityInfo = { joint1: 0, joint2: 0, joint3: 0, valid: false };
-    
-    // Calculate relevant angle based on exercise type
     if (currentState.currentExercise === "push-up") {
-      const shoulder = body[POSE_LANDMARKS.RIGHT_SHOULDER];
-      const elbow = body[POSE_LANDMARKS.RIGHT_ELBOW];
-      const wrist = body[POSE_LANDMARKS.RIGHT_WRIST];
+      // ** Push-up Logic (Single Angle - Right Elbow) **
+      const rShoulder = body[POSE_LANDMARKS.RIGHT_SHOULDER];
+      const rElbow = body[POSE_LANDMARKS.RIGHT_ELBOW];
+      const rWrist = body[POSE_LANDMARKS.RIGHT_WRIST];
       
-      if (shoulder && elbow && wrist) { // Check existence first
-          visibilityInfo = { 
-            joint1: shoulder.visibility, joint2: elbow.visibility, joint3: wrist.visibility, 
-            valid: shoulder.visibility > 0.5 && elbow.visibility > 0.5 && wrist.visibility > 0.5 
-          };
-          if (visibilityInfo.valid) angle = calculateAngle(shoulder, elbow, wrist);
+      const visibilityValid = !!(rShoulder && rElbow && rWrist && 
+                                  rShoulder.visibility > VISIBILITY_THRESHOLD && 
+                                  rElbow.visibility > VISIBILITY_THRESHOLD && 
+                                  rWrist.visibility > VISIBILITY_THRESHOLD);
+      
+      if (visibilityValid) {
+          angleInfo.primaryAngle = calculateAngle(rShoulder, rElbow, rWrist);
+          angleInfo.valid = true;
+          // console.log(`Push-up Angle: ${angleInfo.primaryAngle.toFixed(1)}`); // Debug log if needed
+      } else {
+          // console.log("Push-up visibility low");
+      }
+      
+      // State transition logic (using angleInfo.primaryAngle)
+      if (angleInfo.valid) {
+        if (currentState.exerciseState !== "up" && angleInfo.primaryAngle >= upAngle) {
+          newState = "up";
+        } else if (currentState.exerciseState !== "down" && angleInfo.primaryAngle <= downAngle) {
+          newState = "down";
+        } else if (currentState.exerciseState === "up" && angleInfo.primaryAngle < upAngle - HYSTERESIS_MARGIN) {
+          newState = "transitioning";
+        } else if (currentState.exerciseState === "down" && angleInfo.primaryAngle > downAngle + HYSTERESIS_MARGIN) {
+           newState = "transitioning";
+        } else if (currentState.exerciseState === "transitioning") {
+            if (angleInfo.primaryAngle >= upAngle) newState = "up";
+            else if (angleInfo.primaryAngle <= downAngle) newState = "down";
+        }
       }
     } 
     else if (currentState.currentExercise === "squat") {
-      const hip = body[POSE_LANDMARKS.RIGHT_HIP];
-      const knee = body[POSE_LANDMARKS.RIGHT_KNEE];
-      const ankle = body[POSE_LANDMARKS.RIGHT_ANKLE];
-      
-      if (hip && knee && ankle) {
-          visibilityInfo = { 
-            joint1: hip.visibility, joint2: knee.visibility, joint3: ankle.visibility, 
-            valid: hip.visibility > 0.5 && knee.visibility > 0.5 && ankle.visibility > 0.5 
-          };
-          if (visibilityInfo.valid) angle = calculateAngle(hip, knee, ankle);
+      // ** Squat Logic (Multi-Joint - Both Knees) **
+      const rHip = body[POSE_LANDMARKS.RIGHT_HIP];
+      const rKnee = body[POSE_LANDMARKS.RIGHT_KNEE];
+      const rAnkle = body[POSE_LANDMARKS.RIGHT_ANKLE];
+      const lHip = body[POSE_LANDMARKS.LEFT_HIP];
+      const lKnee = body[POSE_LANDMARKS.LEFT_KNEE];
+      const lAnkle = body[POSE_LANDMARKS.LEFT_ANKLE];
+
+      // Check visibility for BOTH sides
+      const rVisValid = !!(rHip && rKnee && rAnkle && 
+                           rHip.visibility > VISIBILITY_THRESHOLD && 
+                           rKnee.visibility > VISIBILITY_THRESHOLD && 
+                           rAnkle.visibility > VISIBILITY_THRESHOLD);
+      const lVisValid = !!(lHip && lKnee && lAnkle && 
+                           lHip.visibility > VISIBILITY_THRESHOLD && 
+                           lKnee.visibility > VISIBILITY_THRESHOLD && 
+                           lAnkle.visibility > VISIBILITY_THRESHOLD);
+
+      // Calculate angles only if landmarks are visible
+      if (rVisValid) angleInfo.rAngle = calculateAngle(rHip, rKnee, rAnkle);
+      if (lVisValid) angleInfo.lAngle = calculateAngle(lHip, lKnee, lAnkle);
+
+      angleInfo.valid = rVisValid && lVisValid; // Require BOTH sides to be visible for state changes
+
+      if (angleInfo.valid) {
+        console.log(`Squat Angles - R: ${angleInfo.rAngle.toFixed(1)}, L: ${angleInfo.lAngle.toFixed(1)} (UpThr: ${upAngle}, DownThr: ${downAngle})`);
+
+        // State transition logic (Requires BOTH knees to meet criteria)
+        if (currentState.exerciseState !== "up" && angleInfo.rAngle >= upAngle && angleInfo.lAngle >= upAngle) {
+            console.log(`Checking UP state: R(${angleInfo.rAngle.toFixed(1)})>=${upAngle} && L(${angleInfo.lAngle.toFixed(1)})>=${upAngle} -> YES`);
+            newState = "up";
+        } else if (currentState.exerciseState !== "down" && angleInfo.rAngle <= downAngle && angleInfo.lAngle <= downAngle) {
+            console.log(`Checking DOWN state: R(${angleInfo.rAngle.toFixed(1)})<=${downAngle} && L(${angleInfo.lAngle.toFixed(1)})<=${downAngle} -> YES`);
+            newState = "down";
+        } 
+        // Hysteresis: Leaving stable states (Requires EITHER knee to cross margin)
+        else if (currentState.exerciseState === "up" && (angleInfo.rAngle < upAngle - HYSTERESIS_MARGIN || angleInfo.lAngle < upAngle - HYSTERESIS_MARGIN)) {
+            console.log(`Leaving UP state: R(${angleInfo.rAngle.toFixed(1)})<${upAngle - HYSTERESIS_MARGIN} || L(${angleInfo.lAngle.toFixed(1)})<${upAngle - HYSTERESIS_MARGIN} -> YES`);
+            newState = "transitioning";
+        } else if (currentState.exerciseState === "down" && (angleInfo.rAngle > downAngle + HYSTERESIS_MARGIN || angleInfo.lAngle > downAngle + HYSTERESIS_MARGIN)) {
+            console.log(`Leaving DOWN state: R(${angleInfo.rAngle.toFixed(1)})>${downAngle + HYSTERESIS_MARGIN} || L(${angleInfo.lAngle.toFixed(1)})>${downAngle + HYSTERESIS_MARGIN} -> YES`);
+            newState = "transitioning";
+        } 
+        // Transitioning state logic (Requires BOTH knees to meet criteria to settle)
+        else if (currentState.exerciseState === "transitioning") {
+            if (angleInfo.rAngle >= upAngle && angleInfo.lAngle >= upAngle) {
+                console.log(`Transitioning -> UP: R(${angleInfo.rAngle.toFixed(1)})>=${upAngle} && L(${angleInfo.lAngle.toFixed(1)})>=${upAngle} -> YES`);
+                newState = "up";
+            } else if (angleInfo.rAngle <= downAngle && angleInfo.lAngle <= downAngle) {
+                 console.log(`Transitioning -> DOWN: R(${angleInfo.rAngle.toFixed(1)})<=${downAngle} && L(${angleInfo.lAngle.toFixed(1)})<=${downAngle} -> YES`);
+                newState = "down";
+            }
+            // else remain transitioning
+        } else {
+             // Log if no state change condition was met but angles were valid
+             // console.log(`Squat: No state change condition met. Current: ${currentState.exerciseState}, R: ${angleInfo.rAngle.toFixed(1)}, L: ${angleInfo.lAngle.toFixed(1)}`);
+        }
+      } else {
+          // Log visibility issues
+          let reason = "Visibility low:";
+          if (!rVisValid) reason += " Right side.";
+          if (!lVisValid) reason += " Left side.";
+          console.log(`Squat: State change blocked due to ${reason}`);
       }
     } 
     else if (currentState.currentExercise === "sit-up") {
-      const shoulder = body[POSE_LANDMARKS.RIGHT_SHOULDER];
-      const hip = body[POSE_LANDMARKS.RIGHT_HIP];
-      const knee = body[POSE_LANDMARKS.RIGHT_KNEE];
-       if (shoulder && hip && knee) {
-          visibilityInfo = { 
-            joint1: shoulder.visibility, joint2: hip.visibility, joint3: knee.visibility, 
-            valid: shoulder.visibility > 0.5 && hip.visibility > 0.5 && knee.visibility > 0.5 
-          };
-          if (visibilityInfo.valid) angle = calculateAngle(shoulder, hip, knee);
+      // ** Sit-up Logic (Single Angle - Right Hip) **
+      const rShoulder = body[POSE_LANDMARKS.RIGHT_SHOULDER];
+      const rHip = body[POSE_LANDMARKS.RIGHT_HIP];
+      const rKnee = body[POSE_LANDMARKS.RIGHT_KNEE];
+      
+      const visibilityValid = !!(rShoulder && rHip && rKnee && 
+                                  rShoulder.visibility > VISIBILITY_THRESHOLD && 
+                                  rHip.visibility > VISIBILITY_THRESHOLD && 
+                                  rKnee.visibility > VISIBILITY_THRESHOLD);
+                                  
+      if (visibilityValid) {
+          angleInfo.primaryAngle = calculateAngle(rShoulder, rHip, rKnee);
+          angleInfo.valid = true;
+          // console.log(`Sit-up Angle: ${angleInfo.primaryAngle.toFixed(1)}`); // Debug log if needed
+      } else {
+          // console.log("Sit-up visibility low");
+      }
+
+      // State transition logic (using angleInfo.primaryAngle) - Remember sit-up angles are inverted
+      if (angleInfo.valid) {
+        if (currentState.exerciseState !== "up" && angleInfo.primaryAngle <= upAngle) { // UP = Smaller angle
+          newState = "up";
+        } else if (currentState.exerciseState !== "down" && angleInfo.primaryAngle >= downAngle) { // DOWN = Larger angle
+          newState = "down";
+        } else if (currentState.exerciseState === "up" && angleInfo.primaryAngle > upAngle + HYSTERESIS_MARGIN) {
+          newState = "transitioning";
+        } else if (currentState.exerciseState === "down" && angleInfo.primaryAngle < downAngle - HYSTERESIS_MARGIN) {
+           newState = "transitioning";
+        } else if (currentState.exerciseState === "transitioning") {
+            if (angleInfo.primaryAngle <= upAngle) newState = "up";
+            else if (angleInfo.primaryAngle >= downAngle) newState = "down";
+        }
       }
     }
 
-    // Handle CALIBRATION (Only check angle during the capture phase, not during delay)
-    // Calibration logic is now primarily driven by timeouts set in startCalibration
-    if (currentState.isCalibrating) {
-        // The angle capture happens inside the timeout callback in startCalibration now
-        return; // Prevent normal rep processing during calibration
-    }
-    
-    // Determine exercise state based on the angle only if visibility was good
-    if (visibilityInfo.valid && angle > 0) {
-      const { upAngle, downAngle } = currentState.thresholds[currentState.currentExercise as keyof typeof currentState.thresholds];
-      
-      let newState: ExerciseState = currentState.exerciseState;
-      
-      // For push-ups and squats, up means a larger angle
-      if (currentState.currentExercise === "push-up" || currentState.currentExercise === "squat") {
-        // Check for transitions INTO stable states
-        if (currentState.exerciseState !== "up" && angle >= upAngle) { // Enter UP state by reaching threshold
-          newState = "up";
-        } else if (currentState.exerciseState !== "down" && angle <= downAngle) { // Enter DOWN state by reaching threshold
-          newState = "down";
-        }
-        // Check for transitions OUT OF stable states (using margin)
-        else if (currentState.exerciseState === "up" && angle < upAngle - HYSTERESIS_MARGIN) { // Leave UP state only if angle drops significantly
-          newState = "transitioning";
-        } else if (currentState.exerciseState === "down" && angle > downAngle + HYSTERESIS_MARGIN) { // Leave DOWN state only if angle rises significantly
-           newState = "transitioning";
-        }
-        // If currently transitioning, check if we should settle into a state
-        else if (currentState.exerciseState === "transitioning") {
-            if (angle >= upAngle) newState = "up";
-            else if (angle <= downAngle) newState = "down";
-            // else remain transitioning
-        }
-      } 
-      // For sit-ups, up means a smaller angle (torso more vertical)
-      else if (currentState.currentExercise === "sit-up") {
-        // Check for transitions INTO stable states
-        if (currentState.exerciseState !== "up" && angle <= upAngle) { // Enter UP state (smaller angle)
-          newState = "up";
-        } else if (currentState.exerciseState !== "down" && angle >= downAngle) { // Enter DOWN state (larger angle)
-          newState = "down";
-        }
-         // Check for transitions OUT OF stable states (using margin)
-        else if (currentState.exerciseState === "up" && angle > upAngle + HYSTERESIS_MARGIN) { // Leave UP state only if angle rises significantly
-          newState = "transitioning";
-        } else if (currentState.exerciseState === "down" && angle < downAngle - HYSTERESIS_MARGIN) { // Leave DOWN state only if angle drops significantly
-           newState = "transitioning";
-        }
-        // If currently transitioning, check if we should settle into a state
-        else if (currentState.exerciseState === "transitioning") {
-            if (angle <= upAngle) newState = "up";
-            else if (angle >= downAngle) newState = "down";
-             // else remain transitioning
-        }
-      }
-
-      // Log state changes for debugging
-      if (newState !== currentState.exerciseState) {
-          console.log(`State Change: ${currentState.exerciseState} -> ${newState} (Angle: ${angle.toFixed(1)}, UpThr: ${upAngle.toFixed(1)}, DownThr: ${downAngle.toFixed(1)}, Margin: ${HYSTERESIS_MARGIN})`);
-          // Update the actual state
+    // --- COMMON STATE UPDATE & REP COUNTING ---
+    if (newState !== currentState.exerciseState) {
+      // Log state changes only if visibility was valid for the checks performed
+      if (angleInfo.valid) { 
+          console.log(`State Change: ${currentState.exerciseState} -> ${newState} (Exercise: ${currentState.currentExercise})`);
           setExerciseState(newState); 
       
-          // **** NEW: Set the flag when 'down' state is achieved ****
           if (newState === "down") {
               console.log("--- Down state achieved in cycle ---");
               downStateAchievedInCycle.current = true;
           }
 
-          // **** MODIFIED: Count rep if 'up' is reached AND 'down' was achieved this cycle ****
           if (newState === "up" && downStateAchievedInCycle.current) {
-             console.log(`REP COUNTED! Down achieved: ${downStateAchievedInCycle.current}, New: ${newState}. Reps: ${currentState.repCount + 1}`);
+             console.log(`REP COUNTED! Down achieved: ${downStateAchievedInCycle.current}, New State: ${newState}. Reps: ${currentState.repCount + 1}`);
              setRepCount(prev => prev + 1);
-             // **** NEW: Reset the flag after counting the rep ****
              downStateAchievedInCycle.current = false;
              console.log("--- Resetting down achieved flag ---");
           }
 
-          // Update the stable previous state ref *only* when the state actually settles into 'up' or 'down'
           if (newState === "up" || newState === "down") {
-              // console.log(`Updating previousStateRef from ${currentState.previousState} to ${newState}`);
               previousStateRef.current = newState; 
           }
+      } else {
+          // Log why state didn't change if it was due to visibility (already logged in squat section)
+          // console.log(`State change from ${currentState.exerciseState} to ${newState} blocked due to low visibility for ${currentState.currentExercise}`);
       }
-    } else if (!visibilityInfo.valid) {
-      // Log when landmarks are not reliably visible
-      // console.log(`Skipping state update due to low visibility for ${currentState.currentExercise}`);
-      // Optionally: revert to a 'neutral' or 'unknown' state? Or just hold the last known state?
-      // For now, we just don't update state if visibility is bad.
     }
-  }, []); // Empty dependency array - processLandmarks definition is stable
+  }, []); // Empty dependency array ensures stability
 
+  // --- Event Listener useEffect ---
   useEffect(() => {
-    // Setup the listener
     const subscription = poseLandmarksEmitter.addListener(
       "onPoseLandmarksDetected",
       (event) => {
         if (event.landmarks && event.landmarks.length > 0 && event.landmarks[0]) {
-            landmarks.value = event.landmarks[0]; // Update shared value for drawing
-            processLandmarks(event.landmarks[0]); // Process the landmarks
-        } else {
-            // console.log("Received event with no landmarks[0]");
-        }
+            landmarks.value = event.landmarks[0]; 
+            processLandmarks(event.landmarks[0]); 
+        } 
       }
     );
-    
     console.log("PoseLandmarks listener ADDED"); 
-
-    // Cleanup function
     return () => {
       console.log("PoseLandmarks listener REMOVING"); 
       subscription.remove();
     };
-  }, [processLandmarks]); // Re-run only if processLandmarks definition changes (it won't due to useCallback)
+  }, [processLandmarks]); // Dependency is stable
 
-
+  // --- Permission Request useEffect ---
   useEffect(() => {
     requestPermission().catch((error) => console.log(error));
   }, [requestPermission]);
 
-
+  // --- Frame Processor ---
   const frameProcessor = useSkiaFrameProcessor(
     (frame) => {
       "worklet";
-      // --- Frame processor logic remains the same ---
       frameSkipCounter.value++;
       const shouldProcess = frameSkipCounter.value >= PROCESS_EVERY_NTH_FRAME;
       if (shouldProcess) {
@@ -416,6 +448,7 @@ export default function Exercise() {
         let body = landmarks.value;
         let frameWidth = frame.width;
         let frameHeight = frame.height;
+        // Drawing logic remains the same
         if (showLines) {
           for (let [from, to] of LINES) {
             const fromPoint = body[from];
@@ -433,21 +466,21 @@ export default function Exercise() {
           }
         }
       }
-      // --- End Frame processor logic ---
     },
-    [showLines, showCircles] // Dependencies remain the same
+    [showLines, showCircles] 
   );
   
-  // Calibration function with delay timer
+  // --- Calibration Function ---
+  // Calibration currently only considers the RIGHT side landmarks for setting thresholds.
+  // We apply these thresholds symmetrically to the left side for squats.
   const startCalibration = () => {
-    if (currentExercise === "none" || isCalibrating) return; // Prevent starting if none selected or already calibrating
+    if (currentExercise === "none" || isCalibrating) return; 
     
     console.log(`Starting calibration for ${currentExercise}`);
     setIsCalibrating(true);
     setCalibrationStep("up");
-    setCalibrationMessage(`Get ready for UP pose... 3`); // Initial message
+    setCalibrationMessage(`Get ready for UP pose... 3`); 
     
-    // Countdown timer
     let countdown = 3;
     const intervalId = setInterval(() => {
         countdown--;
@@ -456,32 +489,30 @@ export default function Exercise() {
             clearInterval(intervalId);
             setCalibrationMessage(`Capturing UP pose... HOLD!`);
             
-            // --- Capture UP Angle ---
-            // Read landmarks directly from shared value *at the moment of capture*
             const currentLandmarks = landmarks.value; 
             if (currentLandmarks && Object.keys(currentLandmarks).length > 0) {
                 let angle = 0;
                 let visibilityValid = false;
-                // Calculate angle based on current exercise (similar logic as processLandmarks)
+                
+                // Calculate angle based on RIGHT side landmarks only
                 if (currentExercise === "push-up") {
                     const s = currentLandmarks[POSE_LANDMARKS.RIGHT_SHOULDER], e = currentLandmarks[POSE_LANDMARKS.RIGHT_ELBOW], w = currentLandmarks[POSE_LANDMARKS.RIGHT_WRIST];
-                    visibilityValid = !!(s && e && w && s.visibility > 0.5 && e.visibility > 0.5 && w.visibility > 0.5);
+                    visibilityValid = !!(s && e && w && s.visibility > VISIBILITY_THRESHOLD && e.visibility > VISIBILITY_THRESHOLD && w.visibility > VISIBILITY_THRESHOLD);
                     if (visibilityValid) angle = calculateAngle(s, e, w);
                 } else if (currentExercise === "squat") {
                     const h = currentLandmarks[POSE_LANDMARKS.RIGHT_HIP], k = currentLandmarks[POSE_LANDMARKS.RIGHT_KNEE], a = currentLandmarks[POSE_LANDMARKS.RIGHT_ANKLE];
-                    visibilityValid = !!(h && k && a && h.visibility > 0.5 && k.visibility > 0.5 && a.visibility > 0.5);
+                    visibilityValid = !!(h && k && a && h.visibility > VISIBILITY_THRESHOLD && k.visibility > VISIBILITY_THRESHOLD && a.visibility > VISIBILITY_THRESHOLD);
                     if (visibilityValid) angle = calculateAngle(h, k, a);
                 } else if (currentExercise === "sit-up") {
                     const s = currentLandmarks[POSE_LANDMARKS.RIGHT_SHOULDER], h = currentLandmarks[POSE_LANDMARKS.RIGHT_HIP], k = currentLandmarks[POSE_LANDMARKS.RIGHT_KNEE];
-                    visibilityValid = !!(s && h && k && s.visibility > 0.5 && h.visibility > 0.5 && k.visibility > 0.5);
+                    visibilityValid = !!(s && h && k && s.visibility > VISIBILITY_THRESHOLD && h.visibility > VISIBILITY_THRESHOLD && k.visibility > VISIBILITY_THRESHOLD);
                     if (visibilityValid) angle = calculateAngle(s, h, k);
                 }
 
                 if (visibilityValid && angle > 0) {
-                    console.log(`Calibration: Setting UP angle for ${currentExercise} to ${angle.toFixed(1)}`);
+                    console.log(`Calibration: Setting UP angle for ${currentExercise} to ${angle.toFixed(1)} (based on right side)`);
                     setThresholds(prev => ({ ...prev, [currentExercise]: { ...prev[currentExercise as keyof typeof prev], upAngle: angle } }));
                     
-                    // Proceed to DOWN step after a short pause
                     setTimeout(() => {
                         setCalibrationStep("down");
                         setCalibrationMessage(`Get ready for DOWN pose... 3`);
@@ -493,36 +524,63 @@ export default function Exercise() {
                                 clearInterval(downIntervalId);
                                 setCalibrationMessage(`Capturing DOWN pose... HOLD!`);
 
-                                // --- Capture DOWN Angle ---
-                                const downLandmarks = landmarks.value; // Read landmarks again
+                                const downLandmarks = landmarks.value; 
                                 if (downLandmarks && Object.keys(downLandmarks).length > 0) {
                                     let downAngle = 0;
                                     let downVisibilityValid = false;
-                                    // Calculate angle again
-                                      if (currentExercise === "push-up") {
-                                          const s = downLandmarks[POSE_LANDMARKS.RIGHT_SHOULDER], e = downLandmarks[POSE_LANDMARKS.RIGHT_ELBOW], w = downLandmarks[POSE_LANDMARKS.RIGHT_WRIST];
-                                          downVisibilityValid = !!(s && e && w && s.visibility > 0.5 && e.visibility > 0.5 && w.visibility > 0.5);
-                                          if (downVisibilityValid) downAngle = calculateAngle(s, e, w);
-                                      } else if (currentExercise === "squat") {
-                                          const h = downLandmarks[POSE_LANDMARKS.RIGHT_HIP], k = downLandmarks[POSE_LANDMARKS.RIGHT_KNEE], a = downLandmarks[POSE_LANDMARKS.RIGHT_ANKLE];
-                                          downVisibilityValid = !!(h && k && a && h.visibility > 0.5 && k.visibility > 0.5 && a.visibility > 0.5);
-                                          if (downVisibilityValid) downAngle = calculateAngle(h, k, a);
-                                      } else if (currentExercise === "sit-up") {
-                                          const s = downLandmarks[POSE_LANDMARKS.RIGHT_SHOULDER], h = downLandmarks[POSE_LANDMARKS.RIGHT_HIP], k = downLandmarks[POSE_LANDMARKS.RIGHT_KNEE];
-                                          downVisibilityValid = !!(s && h && k && s.visibility > 0.5 && h.visibility > 0.5 && k.visibility > 0.5);
-                                          if (downVisibilityValid) downAngle = calculateAngle(s, h, k);
-                                      }
+                                    
+                                    // Calculate angle based on RIGHT side landmarks only
+                                    if (currentExercise === "push-up") {
+                                        const s = downLandmarks[POSE_LANDMARKS.RIGHT_SHOULDER], e = downLandmarks[POSE_LANDMARKS.RIGHT_ELBOW], w = downLandmarks[POSE_LANDMARKS.RIGHT_WRIST];
+                                        downVisibilityValid = !!(s && e && w && s.visibility > VISIBILITY_THRESHOLD && e.visibility > VISIBILITY_THRESHOLD && w.visibility > VISIBILITY_THRESHOLD);
+                                        if (downVisibilityValid) downAngle = calculateAngle(s, e, w);
+                                    } else if (currentExercise === "squat") {
+                                        const h = downLandmarks[POSE_LANDMARKS.RIGHT_HIP], k = downLandmarks[POSE_LANDMARKS.RIGHT_KNEE], a = downLandmarks[POSE_LANDMARKS.RIGHT_ANKLE];
+                                        downVisibilityValid = !!(h && k && a && h.visibility > VISIBILITY_THRESHOLD && k.visibility > VISIBILITY_THRESHOLD && a.visibility > VISIBILITY_THRESHOLD);
+                                        if (downVisibilityValid) downAngle = calculateAngle(h, k, a);
+                                    } else if (currentExercise === "sit-up") {
+                                        const s = downLandmarks[POSE_LANDMARKS.RIGHT_SHOULDER], h = downLandmarks[POSE_LANDMARKS.RIGHT_HIP], k = downLandmarks[POSE_LANDMARKS.RIGHT_KNEE];
+                                        downVisibilityValid = !!(s && h && k && s.visibility > VISIBILITY_THRESHOLD && h.visibility > VISIBILITY_THRESHOLD && k.visibility > VISIBILITY_THRESHOLD);
+                                        if (downVisibilityValid) downAngle = calculateAngle(s, h, k);
+                                    }
 
                                     if (downVisibilityValid && downAngle > 0) {
-                                        console.log(`Calibration: Setting DOWN angle for ${currentExercise} to ${downAngle.toFixed(1)}`);
-                                        setThresholds(prev => ({ ...prev, [currentExercise]: { ...prev[currentExercise as keyof typeof prev], downAngle: downAngle } }));
+                                        console.log(`Calibration: Setting DOWN angle for ${currentExercise} to ${downAngle.toFixed(1)} (based on right side)`);
                                         
-                                        // Finish calibration
+                                        // --- Angle Sanity Check ---
+                                        // Ensure down angle isn't higher than up angle (or vice-versa for sit-ups)
+                                        let finalUpAngle = thresholds[currentExercise as keyof typeof thresholds].upAngle; // Get the already set upAngle
+                                        let finalDownAngle = downAngle;
+                                        
+                                        if (currentExercise === "sit-up") {
+                                           // For sit-ups, UP angle should be SMALLER than DOWN angle
+                                           if (finalUpAngle >= finalDownAngle) {
+                                                Alert.alert("Calibration Issue", `Down pose angle (${finalDownAngle.toFixed(0)}°) must be greater than Up pose angle (${finalUpAngle.toFixed(0)}°) for sit-ups. Please try calibration again.`);
+                                                setIsCalibrating(false);
+                                                setCalibrationMessage("");
+                                                return; // Exit calibration early
+                                           }
+                                        } else {
+                                            // For push-ups/squats, UP angle should be LARGER than DOWN angle
+                                            if (finalUpAngle <= finalDownAngle) {
+                                                Alert.alert("Calibration Issue", `Up pose angle (${finalUpAngle.toFixed(0)}°) must be greater than Down pose angle (${finalDownAngle.toFixed(0)}°). Please try calibration again.`);
+                                                setIsCalibrating(false);
+                                                setCalibrationMessage("");
+                                                return; // Exit calibration early
+                                            }
+                                        }
+                                        // --- End Sanity Check ---
+
+
+                                        setThresholds(prev => ({ ...prev, [currentExercise]: { ...prev[currentExercise as keyof typeof prev], downAngle: finalDownAngle } }));
+                                        
                                         setCalibrationMessage(`Calibration Complete!`);
-                                        setTimeout(() => { // Clear message after a bit
+                                        setTimeout(() => { 
                                              setIsCalibrating(false);
                                              setCalibrationMessage("");
-                                             setCalibrationStep("up"); // Reset for next time
+                                             setCalibrationStep("up"); 
+                                             // Reset exercise state after calibration?
+                                             resetExercise(); // Start fresh with new thresholds
                                         }, 2000);
                                     } else {
                                         Alert.alert("Calibration Failed", "Could not detect pose clearly for DOWN position. Please try again.");
@@ -536,7 +594,7 @@ export default function Exercise() {
                                 }
                             }
                         }, 1000);
-                    }, 500); // Short pause before starting down countdown
+                    }, 500); 
 
                 } else {
                     Alert.alert("Calibration Failed", "Could not detect pose clearly for UP position. Please try again.");
@@ -549,22 +607,22 @@ export default function Exercise() {
                  setCalibrationMessage("");
             }
         }
-    }, 1000); // 1 second interval for countdown
+    }, 1000); 
   };
   
-  // Reset function remains the same
+  // --- Reset Function ---
   const resetExercise = () => {
-     console.log(`Resetting exercise. Exercise: ${currentExercise}, Reps: ${repCount}`);
+     console.log(`Resetting exercise. Current: ${currentExercise}, Reps before reset: ${stateRef.current.repCount}`); // Log stateRef value
     setRepCount(0);
-    setExerciseState("up");
-    previousStateRef.current = "up"; // Reset stable previous state too
-    // **** NEW: Reset the flag on exercise reset ****
+    setExerciseState("up"); // Default to up state
+    previousStateRef.current = "up"; 
     downStateAchievedInCycle.current = false;
-    setIsCalibrating(false); // Ensure calibration is cancelled
+    setIsCalibrating(false); 
     setCalibrationMessage("");
+    // Maybe reset thresholds to default here if desired? For now, keep calibrated ones.
   };
 
-  // --- Permission/Device Checks (remain the same) ---
+  // --- Permission/Device Checks ---
    if (!hasPermission) {
     return <Text>No permission</Text>;
   }
@@ -574,6 +632,7 @@ export default function Exercise() {
   const pixelFormat = Platform.OS === "ios" ? "rgb" : "yuv";
   // --- End Checks ---
 
+  // --- Render ---
   return (
     <>
       <Stack.Screen
@@ -615,12 +674,12 @@ export default function Exercise() {
         videoHdr={false}
         enableBufferCompression={true}
         photo={false}
-        fps={30} // Consider if 30fps is needed or if lower is okay
+        fps={30} // Keep FPS reasonable
       />
       
       {/* Exercise controls overlay */}
       <View style={styles.exerciseControls}>
-        <Text style={styles.heading}>FitQuest</Text>
+        <Text style={styles.heading}>FitRep</Text> {/* Updated Name */}
         
         {/* Calibration Message Overlay */}
         {isCalibrating && calibrationMessage && (
@@ -635,21 +694,21 @@ export default function Exercise() {
             <TouchableOpacity
               style={[ styles.exerciseButton, currentExercise === "push-up" && styles.activeButton ]}
               onPress={() => { setCurrentExercise("push-up"); resetExercise(); }}
-              disabled={isCalibrating} // Disable during calibration
+              disabled={isCalibrating} 
             >
               <Text style={styles.buttonText}>Push-up</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[ styles.exerciseButton, currentExercise === "squat" && styles.activeButton ]}
               onPress={() => { setCurrentExercise("squat"); resetExercise(); }}
-               disabled={isCalibrating} // Disable during calibration
+               disabled={isCalibrating} 
             >
               <Text style={styles.buttonText}>Squat</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[ styles.exerciseButton, currentExercise === "sit-up" && styles.activeButton ]}
               onPress={() => { setCurrentExercise("sit-up"); resetExercise(); }}
-               disabled={isCalibrating} // Disable during calibration
+               disabled={isCalibrating} 
             >
               <Text style={styles.buttonText}>Sit-up</Text>
             </TouchableOpacity>
@@ -664,24 +723,28 @@ export default function Exercise() {
               <Text style={styles.stateLabel}>
                 State: {exerciseState.charAt(0).toUpperCase() + exerciseState.slice(1)}
               </Text>
+               {/* Display thresholds for debugging */}
+              {/* <Text style={styles.debugText}>
+                Thresh: Up {thresholds[currentExercise]?.upAngle?.toFixed(0) ?? 'N/A'}, 
+                Down {thresholds[currentExercise]?.downAngle?.toFixed(0) ?? 'N/A'}
+              </Text> */}
             </View>
             
             <View style={styles.actionButtons}>
               <TouchableOpacity
-                style={[styles.actionButton, isCalibrating && styles.disabledButton]} // Style when disabled
+                style={[styles.actionButton, isCalibrating && styles.disabledButton]} 
                 onPress={startCalibration}
-                disabled={isCalibrating} // Disable button itself
+                disabled={isCalibrating}
               >
                 <Text style={styles.buttonText}>
-                   {/* Keep button text simple */}
                   Calibrate 
                 </Text>
               </TouchableOpacity>
               
               <TouchableOpacity
-                style={[styles.actionButton, isCalibrating && styles.disabledButton]} // Style when disabled
+                style={[styles.actionButton, isCalibrating && styles.disabledButton]} 
                 onPress={resetExercise}
-                disabled={isCalibrating} // Disable during calibration
+                disabled={isCalibrating} 
               >
                 <Text style={styles.buttonText}>Reset</Text>
               </TouchableOpacity>
@@ -693,22 +756,23 @@ export default function Exercise() {
   );
 }
 
+// --- Styles (Added debugText style) ---
 const styles = StyleSheet.create({
   drawControl: {
     position: "absolute",
-    top: 0, // Adjust if needed based on safe areas/notch
+    top: 0, 
     left: 0,
     right: 0,
-    zIndex: 20, // Ensure above camera but potentially below calibration message
-    backgroundColor: "rgba(255, 255, 255, 0.7)", // Slightly transparent
+    zIndex: 20, 
+    backgroundColor: "rgba(255, 255, 255, 0.7)", 
     flexDirection: "row",
-    justifyContent: "space-around", // Space out buttons
+    justifyContent: "space-around", 
     paddingVertical: 8,
     paddingHorizontal: 10,
   },
   exerciseControls: {
     position: "absolute",
-    bottom: 30, // Adjust for safe areas if needed
+    bottom: 30, 
     left: 15,
     right: 15,
     backgroundColor: "rgba(0,0,0,0.75)",
@@ -769,37 +833,42 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: "#FFF",
     marginTop: 5,
-    fontStyle: 'italic', // Differentiate state label
+    fontStyle: 'italic', 
   },
+  // Optional: Style for debug text
+  // debugText: {
+  //   fontSize: 10,
+  //   color: '#CCC',
+  //   marginTop: 3,
+  // },
   actionButtons: {
     flexDirection: "row",
     justifyContent: "space-evenly",
-    marginTop: 10, // Add some space above action buttons
+    marginTop: 10, 
   },
   actionButton: {
-    backgroundColor: "#28a745", // Green for calibrate/reset
+    backgroundColor: "#28a745", 
     paddingVertical: 12,
     paddingHorizontal: 25,
     borderRadius: 8,
-    minWidth: 100, // Ensure buttons have some minimum width
+    minWidth: 100, 
     alignItems: 'center',
   },
   disabledButton: {
-      backgroundColor: "#6c757d", // Gray out when disabled
+      backgroundColor: "#6c757d", 
       opacity: 0.7,
   },
-  // --- New styles for calibration overlay ---
   calibrationOverlay: {
-      position: 'absolute', // Position it over the controls or screen center
-      top: 0, // Adjust as needed - maybe center it?
+      position: 'absolute', 
+      top: 0, 
       left: 0,
       right: 0,
       bottom: 0,
-      backgroundColor: 'rgba(0, 0, 0, 0.8)', // Dark overlay
+      backgroundColor: 'rgba(0, 0, 0, 0.8)', 
       justifyContent: 'center',
       alignItems: 'center',
-      zIndex: 50, // Make sure it's on top
-      borderRadius: 15, // Match controls panel if desired
+      zIndex: 50, 
+      borderRadius: 15, 
   },
   calibrationText: {
       fontSize: 28,
